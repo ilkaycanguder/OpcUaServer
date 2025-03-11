@@ -16,11 +16,179 @@ class MyNodeManager : CustomNodeManager2
     private List<BaseDataVariableState> opcUaVariables = new List<BaseDataVariableState>();
     private System.Timers.Timer dbPollingTimer;
 
+    private Dictionary<NodeId, FolderState> clientNodes = new Dictionary<NodeId, FolderState>();
 
     public MyNodeManager(IServerInternal server, ApplicationConfiguration config)
         : base(server, config, Namespace)
     {
     }
+
+    // Yeni eklenen metot - Client node'u oluşturma
+    public void RegisterClientNode(NodeId sessionId)
+    {
+        lock (Lock)
+        {
+            // Eğer bu session ID için zaten bir node varsa, işlem yapma
+            if (clientNodes.ContainsKey(sessionId))
+            {
+                Console.WriteLine($"Belirtilen ID için zaten bir Client Node var: {sessionId}");
+                return;
+            }
+
+            try
+            {
+                // Client için özel bir klasör oluştur
+                string clientIdString = sessionId.ToString().Replace(":", "_").Replace(";", "_");
+                string clientNodeName = $"Client_{clientIdString}";
+
+                FolderState clientFolder = new FolderState(null)
+                {
+                    NodeId = new NodeId(clientNodeName, NamespaceIndex),
+                    BrowseName = new QualifiedName(clientNodeName, NamespaceIndex),
+                    DisplayName = new LocalizedText(clientNodeName),
+                    TypeDefinitionId = ObjectTypeIds.FolderType
+                };
+
+                // Client için özel değişkenler oluştur
+                BaseDataVariableState clientStatus = new BaseDataVariableState(clientFolder)
+                {
+                    NodeId = new NodeId($"{clientNodeName}_Status", NamespaceIndex),
+                    BrowseName = new QualifiedName("Status", NamespaceIndex),
+                    DisplayName = new LocalizedText("Connection Status"),
+                    DataType = DataTypeIds.String,
+                    ValueRank = ValueRanks.Scalar,
+                    AccessLevel = AccessLevels.CurrentReadOrWrite,
+                    UserAccessLevel = AccessLevels.CurrentReadOrWrite,
+                    Value = "Connected"
+                };
+
+                BaseDataVariableState clientConnectTime = new BaseDataVariableState(clientFolder)
+                {
+                    NodeId = new NodeId($"{clientNodeName}_ConnectTime", NamespaceIndex),
+                    BrowseName = new QualifiedName("ConnectTime", NamespaceIndex),
+                    DisplayName = new LocalizedText("Connection Time"),
+                    DataType = DataTypeIds.DateTime,
+                    ValueRank = ValueRanks.Scalar,
+                    AccessLevel = AccessLevels.CurrentReadOrWrite,
+                    UserAccessLevel = AccessLevels.CurrentReadOrWrite,
+                    Value = DateTime.Now
+                };
+
+                // Değişkenleri klasöre ekle
+                clientFolder.AddChild(clientStatus);
+                clientFolder.AddChild(clientConnectTime);
+
+                // Client node'unu objects klasörüne bağla
+                IList<IReference> references = new List<IReference>();
+                references.Add(new NodeStateReference(ReferenceTypeIds.Organizes, false, clientFolder.NodeId));
+
+                // Nodes klasörü var ise onun altına ekle, yoksa Objects klasörüne ekle
+                NodeState parent = null;
+
+                // Mevcut FolderState'leri kontrol et
+                foreach (var node in PredefinedNodes.Values)
+                {
+                    if (node is FolderState folder && folder.BrowseName.Name == "MyFolder")
+                    {
+                        parent = folder;
+                        break;
+                    }
+                }
+
+                if (parent != null)
+                {
+                    // MyFolder altına ekle
+                    ((FolderState)parent).AddReference(ReferenceTypeIds.Organizes, false, clientFolder.NodeId);
+                    clientFolder.AddReference(ReferenceTypeIds.Organizes, true, parent.NodeId);
+                }
+                else
+                {
+                    // Objects klasörüne ekle
+                    AddReferenceToObjectsFolder(clientFolder);
+                }
+
+                // Node'u ekle ve dictionary'de tut
+                AddPredefinedNode(SystemContext, clientFolder);
+                clientNodes.Add(sessionId, clientFolder);
+
+                Console.WriteLine($"Client Node başarıyla oluşturuldu: {clientNodeName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Client Node oluşturma hatası: {ex.Message}");
+            }
+        }
+    }
+    // Yeni eklenen metot - Client node'unu silme
+    public void RemoveClientNode(NodeId sessionId)
+    {
+        lock (Lock)
+        {
+            if (!clientNodes.TryGetValue(sessionId, out FolderState clientFolder))
+            {
+                Console.WriteLine($"Belirtilen ID için Client Node bulunamadı: {sessionId}");
+                return;
+            }
+
+            try
+            {
+                // Client Node'unu sil
+                DeleteNode(SystemContext, clientFolder.NodeId);
+
+                // Referansı dictionary'den kaldır
+                clientNodes.Remove(sessionId);
+
+                Console.WriteLine($"Client Node başarıyla kaldırıldı: {clientFolder.DisplayName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Client Node kaldırma hatası: {ex.Message}");
+            }
+        }
+    }
+
+    // Yardımcı metot - Node'u Objects klasörüne ekler
+    private void AddReferenceToObjectsFolder(NodeState node)
+    {
+        if (!PredefinedNodes.ContainsKey(ObjectIds.ObjectsFolder))
+        {
+            Console.WriteLine("❌ ObjectsFolder bulunamadı! OPC UA Server'ın doğru çalıştığını kontrol edin.");
+            return;
+        }
+
+        var objectsFolder = PredefinedNodes[ObjectIds.ObjectsFolder] as FolderState;
+        if (objectsFolder != null)
+        {
+            objectsFolder.AddReference(ReferenceTypeIds.Organizes, false, node.NodeId);
+            node.AddReference(ReferenceTypeIds.Organizes, true, objectsFolder.NodeId);
+            Console.WriteLine($"✅ {node.BrowseName} ObjectsFolder'a eklendi.");
+        }
+        else
+        {
+            Console.WriteLine("❌ ObjectsFolder'a referans eklenemedi!");
+        }
+    }
+
+
+    private void DeleteNode(ISystemContext context, NodeId nodeId)
+    {
+        if (PredefinedNodes.TryGetValue(nodeId, out var node))
+        {
+            PredefinedNodes.Remove(nodeId);
+
+            if (node is FolderState folder)
+            {
+                IList<BaseInstanceState> childNodes = new List<BaseInstanceState>();
+                folder.GetChildren(context, childNodes);
+                foreach (var child in childNodes)
+                {
+                    PredefinedNodes.Remove(child.NodeId);
+                }
+            }
+        }
+    }
+
+
     private async Task CheckDatabaseForChanges()
     {
         try
@@ -58,9 +226,6 @@ class MyNodeManager : CustomNodeManager2
 
     public override void CreateAddressSpace(IDictionary<NodeId, IList<IReference>> externalReferences)
     {
-        Console.WriteLine($"🔵 OPC UA Server Namespace: {string.Join(", ", this.NamespaceUris.ToArray())}");
-
-
         lock (Lock)
         {
             FolderState myFolder = new FolderState(null)
@@ -152,9 +317,16 @@ class MyNodeManager : CustomNodeManager2
             var variable = node as BaseDataVariableState;
             if (variable != null)
             {
-                UpdateTagInDatabase(variable.BrowseName.Name, newValue);
-                UpdateTagInConsole(variable.BrowseName.Name, newValue);
-                UpdateTagInOpcUaNode(variable, newValue);
+                // 🔥 PostgreSQL Güncelle
+                DatabaseHelper.UpdateTagValue(variable.BrowseName.Name, newValue);
+
+                // 🔥 Server Console Log
+                Console.WriteLine($"[OPC UA Update] Tag: {variable.BrowseName.Name}, Yeni Değer: {newValue}");
+
+                // 🔥 OPC UA Node Güncelleme
+                variable.Value = newValue;
+                variable.Timestamp = DateTime.UtcNow;
+                variable.ClearChangeMasks(SystemContext, true);
 
                 return ServiceResult.Good;
             }
@@ -163,7 +335,16 @@ class MyNodeManager : CustomNodeManager2
         return StatusCodes.BadTypeMismatch;
     }
 
-
+    private void NotifyClients(BaseDataVariableState variable, int newValue)
+    {
+        lock (Lock)
+        {
+            Console.WriteLine($"✅ OPC UA Güncellendi: {variable.BrowseName.Name} = {newValue}");
+            variable.Value = newValue;
+            variable.Timestamp = DateTime.UtcNow;
+            variable.ClearChangeMasks(SystemContext, true);
+        }
+    }
 
     // 🔹 OPC UA Node Güncelleme
     private void UpdateTagInOpcUaNode(BaseDataVariableState variable, int newValue)
@@ -255,18 +436,6 @@ class MyNodeManager : CustomNodeManager2
         }
         return ServiceResult.Good;
     }
-
-    // ✅ **Method to update server message**
-    //public void UpdateServerMessage(string newMessage)
-    //{
-    //    lock (Lock)
-    //    {
-    //        messageFromServer.Value = newMessage;
-    //        messageFromServer.Timestamp = DateTime.UtcNow;
-    //        messageFromServer.ClearChangeMasks(SystemContext, true);
-    //        Console.WriteLine($"Server message updated: {newMessage}");
-    //    }
-    //}
     public void ReadClientMessage()
     {
         lock (Lock)

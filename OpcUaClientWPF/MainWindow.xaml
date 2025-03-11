@@ -29,11 +29,23 @@
         <!-- 🔹 OPC UA Tag Listesi -->
         <Border Grid.Row="1" BorderBrush="#CCCCCC" BorderThickness="1" Background="#F5F5F5" CornerRadius="8">
             <ListView x:Name="tagsListView"
-                      ItemsSource="{Binding OpcTags}"
-                      Margin="5"
-                      Background="Transparent"
-                      BorderThickness="0"
-                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+          ItemsSource="{Binding OpcTags}"
+          Margin="5"
+          Background="Transparent"
+          BorderThickness="0"
+          ScrollViewer.VerticalScrollBarVisibility="Auto">
+
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="Background" Value="White"/>
+                        <Style.Triggers>
+                            <!-- Eğer Tag Güncellendiyse, Arka Planı Yeşil Yap -->
+                            <DataTrigger Binding="{Binding IsUpdated}" Value="True">
+                                <Setter Property="Background" Value="LightGreen"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListView.ItemContainerStyle>
 
                 <ListView.View>
                     <GridView>
@@ -57,10 +69,10 @@
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <Button Content="✏️" 
-                                            Width="50" 
-                                            Height="30" 
-                                            CommandParameter="{Binding}" 
-                                            Click="EditTag_Click"/>
+                                Width="50" 
+                                Height="30" 
+                                CommandParameter="{Binding}" 
+                                Click="EditTag_Click"/>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>

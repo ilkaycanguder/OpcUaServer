@@ -149,38 +149,36 @@ public partial class MainWindow : Window
         {
             if (subscription == null) return;
 
-            // ✅ NodeId'yi doğru şekilde oluştur
             NodeId nodeId = new NodeId(tag.TagName, (ushort)namespaceIndex);
 
-            // Eğer bu tag zaten izleniyorsa tekrar ekleme
             if (monitoredItems.ContainsKey(tag.TagName)) return;
 
-            // Yeni monitored item oluştur
             MonitoredItem monitoredItem = new MonitoredItem(subscription.DefaultItem)
             {
                 DisplayName = tag.TagName,
                 StartNodeId = nodeId,
                 AttributeId = Attributes.Value,
-                SamplingInterval = 1000,
+                SamplingInterval = 500, // 🔥 500ms'de bir güncelleme kontrolü
                 QueueSize = 10,
                 DiscardOldest = true
             };
 
-            // Değer değişikliğinde tetiklenecek event
             monitoredItem.Notification += (item, e) =>
             {
                 Dispatcher.Invoke(() =>
                 {
                     if (e.NotificationValue is MonitoredItemNotification notification && notification.Value?.Value != null)
                     {
-                        // Tag değerini güncelle
                         var existingTag = OpcTags.FirstOrDefault(t => t.TagName == tag.TagName);
                         if (existingTag != null)
                         {
-                            existingTag.TagValue = notification.Value.Value != null ? Convert.ToInt32(notification.Value.Value) : 0;
+                            existingTag.TagValue = Convert.ToInt32(notification.Value.Value);
                             existingTag.LastUpdate = DateTime.Now;
+                            existingTag.State = "Updated"; // 🔥 VisualState değişimi
 
-                            // **Veritabanını Güncelle!**
+                            // **Görsel UI güncellemesi için state değiştir**
+                            VisualStateManager.GoToState(this, "UpdatedState", true);
+
                             DatabaseHelper.UpdateTagValue(existingTag.TagName, existingTag.TagValue);
                         }
                     }
@@ -188,9 +186,9 @@ public partial class MainWindow : Window
                 });
             };
 
-            // Subscription'a ekle
             subscription.AddItem(monitoredItem);
             monitoredItems[tag.TagName] = monitoredItem;
+            subscription.ApplyChanges();
         }
         catch (Exception ex)
         {
@@ -198,40 +196,42 @@ public partial class MainWindow : Window
         }
     }
 
+
+
     private async Task InitializeOpcUaClient()
     {
         try
         {
             UpdateStatus("OPC UA İstemcisi başlatılıyor...", Brushes.Blue);
 
-            // Yapılandırma dosyasının yolu
+            // OPC UA Yapılandırma Dosyası
             string configFilePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "OpcUaClient.Config.xml");
 
             // Config.xml dosyasını oluştur
             await EnsureConfigurationFileExists(configFilePath);
 
-            // OPC UA uygulama örneği
+            // OPC UA Uygulama Tanımlaması
             ApplicationInstance application = new ApplicationInstance
             {
                 ApplicationName = "OpcUaWpfClient",
                 ApplicationType = ApplicationType.Client
             };
 
-            // XML yapılandırmasını yükle
+            // XML Yapılandırmasını Yükle
             ApplicationConfiguration config = await application.LoadApplicationConfiguration(configFilePath, silent: false);
             if (config == null)
             {
                 throw new Exception("Yapılandırma dosyası yüklenemedi!");
             }
 
-            // ApplicationType'ı kontrol et
+            // Uygulama Tipini Doğrula
             if (config.ApplicationType != ApplicationType.Client)
             {
                 UpdateStatus("ApplicationType hatalı, Client olarak güncellendi.", Brushes.Orange);
                 config.ApplicationType = ApplicationType.Client;
             }
 
-            // Sertifikayı kontrol et veya oluştur
+            // Sertifika Kontrolü veya Oluşturulması
             bool certOK = await application.CheckApplicationInstanceCertificate(false, 2048);
             if (!certOK)
             {
@@ -245,39 +245,35 @@ public partial class MainWindow : Window
 
             application.ApplicationConfiguration = config;
 
-            // OPC UA Sunucusuna Bağlan
+            // ✅ OPC UA SUNUCUSUNA BAĞLAN
             UpdateStatus($"PostgreSQL veritabanına bağlı OPC UA sunucusuna bağlanılıyor: {ServerUrl}", Brushes.Blue);
 
-            // Endpoint seç
+            // Endpoint Seçimi
             var endpoint = CoreClientUtils.SelectEndpoint(ServerUrl, false, 15000);
             var configEndpoint = new ConfiguredEndpoint(null, endpoint, EndpointConfiguration.Create(config));
 
-            // Oturum oluştur
+            // **Oturum Açma ve Namespace Kontrolü**
+            session = await Session.Create(
+                config,
+                configEndpoint,
+                false,
+                "OpcUaWpfClient",
+                60000,
+                new UserIdentity(new AnonymousIdentityToken()),
+                null);
+
+            session.FetchNamespaceTables();  // Namespace listesini çek
+            namespaceIndex = session.NamespaceUris.GetIndex(namespaceUri); // Namespace indexini güncelle
+
             if (namespaceIndex == -1)
             {
                 Console.WriteLine("⚠️ Namespace Index -1! Client bağlantısı yenileniyor...");
-
-                //session.Close(); // Mevcut oturumu kapat
-                session = await Session.Create(
-                    config,
-                    configEndpoint,
-                    false,
-                    "OpcUaWpfClient",
-                    60000,
-                    new UserIdentity(new AnonymousIdentityToken()),
-                    null
-                );
-
-                session.FetchNamespaceTables(); // Namespace listesini yeniden çek
-                namespaceIndex = session.NamespaceUris.GetIndex(namespaceUri);
-                Console.WriteLine($"🟢 OPC UA Namespace Index Yenilendi: {namespaceIndex}");
+                throw new Exception("Namespace index alınamadı!");
             }
 
+            UpdateStatus($"🟢 OPC UA sunucusuna bağlandı! Namespace Index: {namespaceIndex}", Brushes.Green);
 
-            UpdateStatus("OPC UA sunucusuna bağlandı! PostgreSQL veritabanı entegrasyonu kontrol ediliyor...", Brushes.Green);
-
-
-            // Subscription oluştur
+            // **SUBSCRIPTION OLUŞTUR (TÜM CLIENT'LAR İÇİN ANLIK GÜNCELLEME)**
             subscription = new Subscription(session.DefaultSubscription)
             {
                 PublishingInterval = 1000,
@@ -288,19 +284,24 @@ public partial class MainWindow : Window
 
             session.AddSubscription(subscription);
             subscription.Create();
+
+            // **OPC UA NODE'LERİNİ YÜKLE**
             await GetOpcUaNodes();
 
-            // Sunucu mesajlarını izle (ChatMessage tag'ını bul)
-            var messageTag = OpcTags.FirstOrDefault(t =>
-                t.TagName.Contains("MessageFromServer"));
+            // **TÜM OPC UA TAG’LERİNE MONITOR EKLE**
+            foreach (var tag in OpcTags)
+            {
+                AddMonitoredItem(tag);
+            }
 
+            // **SUNUCU MESAJLARINI DİNLE**
+            var messageTag = OpcTags.FirstOrDefault(t => t.TagName.Contains("MessageFromServer"));
             if (messageTag != null)
             {
-                UpdateStatus($"Sunucu mesaj tag'ı bulundu: {messageTag.TagName}", Brushes.Green);
+                UpdateStatus($"✅ Sunucu mesaj tag'ı bulundu: {messageTag.TagName}", Brushes.Green);
             }
             else
             {
-                // Varsayılan mesaj izlemeyi ekle
                 MonitoredItem monitoredItem = new MonitoredItem(subscription.DefaultItem)
                 {
                     DisplayName = "ServerMessageMonitor",
@@ -313,18 +314,19 @@ public partial class MainWindow : Window
 
                 monitoredItem.Notification += OnServerMessageReceived;
                 subscription.AddItem(monitoredItem);
-                UpdateStatus("Varsayılan sunucu mesajları dinleniyor...", Brushes.Green);
+                UpdateStatus("✅ Varsayılan sunucu mesajları dinleniyor...", Brushes.Green);
             }
 
-            // Değişiklikleri uygula
+            // **DEĞİŞİKLİKLERİ UYGULA**
             subscription.ApplyChanges();
         }
         catch (Exception ex)
         {
-            UpdateStatus($"Hata: {ex.Message}", Brushes.Red);
+            UpdateStatus($"❌ Hata: {ex.Message}", Brushes.Red);
             MessageBox.Show($"Bağlantı hatası: {ex.Message}", "Hata", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
     // Sunucudan gelen mesajları işle
     private void OnServerMessageReceived(MonitoredItem monitoredItem, MonitoredItemNotificationEventArgs e)
     {
@@ -705,7 +707,6 @@ public partial class MainWindow : Window
             UpdateStatus("⚠️ OPC UA Sunucusuna bağlı değil!", Brushes.Red);
             return;
         }
-        Console.WriteLine($"🟡 OPC UA Namespace Listesi: {string.Join(", ", session.NamespaceUris.ToArray())}");
 
         try
         {
@@ -715,7 +716,7 @@ public partial class MainWindow : Window
             {
                 NodeId = opcNodeId,
                 AttributeId = Attributes.Value,
-                Value = new DataValue(new Variant(newValue))  // Send as integer
+                Value = new DataValue(new Variant(newValue))
             };
 
             WriteValueCollection valuesToWrite = new WriteValueCollection { valueToWrite };
@@ -723,22 +724,12 @@ public partial class MainWindow : Window
             DiagnosticInfoCollection diagnosticInfos;
 
             session.Write(null, valuesToWrite, out results, out diagnosticInfos);
-            Console.WriteLine($"🟢 OPC UA NodeId: {opcNodeId.Identifier}, NamespaceIndex: {namespaceIndex}");
 
-            Console.WriteLine($"🟡 OPC UA Sunucusuna yazma denemesi: {nodeId} = {newValue}");
-
-            if (results.Count > 0)
-            {
-                Console.WriteLine($"🔴 OPC UA Yazma Hatası! NodeId: {nodeId}, Hata Kodu: {results[0]}");
-            }
-            else
-            {
-                Console.WriteLine("⚠️ OPC UA Yazma başarısız ama results boş!");
-            }
             if (results[0] == StatusCodes.Good)
             {
                 UpdateStatus($"✅ {nodeId} başarıyla güncellendi: {newValue}", Brushes.Green);
-                // Also update in database
+
+                // **PostgreSQL Güncelle**
                 DatabaseHelper.UpdateTagValue(nodeId, newValue);
             }
             else
@@ -773,13 +764,10 @@ public partial class MainWindow : Window
 
             if (int.TryParse(editedValue, out int newValue) && newValue != selectedTag.TagValue)
             {
-                selectedTag.TagValue = newValue;
-                WriteValueToOpcUa(selectedTag.TagName, newValue);
+                selectedTag.TagValue = newValue;  // 🔥 Değer değişti, otomatik güncellenecek
 
-                // Update UI to show the change
-                UpdateStatus($"✅ {selectedTag.TagName} değeri {newValue} olarak güncelleniyor...", Brushes.Green);
-                selectedTag.LastUpdate = DateTime.Now;
-                tagsListView.Items.Refresh();
+                // ✅ OPC UA Server'a Güncelleme Gönder
+                WriteValueToOpcUa(selectedTag.TagName, newValue);
             }
             else
             {
@@ -787,6 +775,8 @@ public partial class MainWindow : Window
             }
         }
     }
+
+
 
     //private void addTagButton_Click(object sender, RoutedEventArgs e)
     //{
