@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ApplicationConfiguration xmlns="http://opcfoundation.org/UA/SDK/Configuration.xsd">
+	<ApplicationName>SimpleOpcUaClient</ApplicationName>
+	<ApplicationUri>urn:localhost:SimpleOpcUaClient</ApplicationUri>
+	<ApplicationType>Server</ApplicationType>
+	<SecurityConfiguration>
+		<ApplicationCertificate>
+			<StoreType>Directory</StoreType>
+			<StorePath>C:/ProgramData/OPC Foundation/CertificateStores/MachineDefault</StorePath>
+			<SubjectName>CN=SimpleOpcUaClient</SubjectName>
+		</ApplicationCertificate>
+		<AutoAcceptUntrustedCertificates>true</AutoAcceptUntrustedCertificates>
+	</SecurityConfiguration>
+	<TransportQuotas>
+		<OperationTimeout>15000</OperationTimeout>
+	</TransportQuotas>
+</ApplicationConfiguration>
