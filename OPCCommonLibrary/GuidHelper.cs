@@ -168,46 +168,80 @@ namespace OPCCommonLibrary
         /// **✅ İstemcinin kullanım durumunu güncelle**
         public static void UpdateClientUsage(Guid clientGuid, bool isUsed)
         {
-            XDocument doc = XDocument.Load(guidFilePath);
+            string configFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Guid.Config.xml");
+
+            if (!File.Exists(configFilePath))
+            {
+                Console.WriteLine("⚠️ Guid.Config.xml bulunamadı! Varsayılan dosya oluşturuluyor...");
+                CreateDefaultGuidXml();
+            }
+
+            XDocument doc = XDocument.Load(configFilePath);
             XElement clientsElement = doc.Element("GuidConfig").Element("Clients");
 
-            var client = clientsElement.Elements("Client")
+            var clientElement = clientsElement.Elements("Client")
                 .FirstOrDefault(c => c.Element("ClientId").Value == clientGuid.ToString());
 
-            if (client != null)
+            if (clientElement != null)
             {
-                client.Element("IsUsed").Value = isUsed ? "true" : "false";
-                doc.Save(guidFilePath);
+                clientElement.Element("IsUsed").Value = isUsed ? "true" : "false";
+                doc.Save(configFilePath);
                 Console.WriteLine($"✅ İstemci durumu güncellendi: {clientGuid} -> IsUsed = {isUsed}");
             }
+            else
+            {
+                Console.WriteLine($"⚠️ Hata: GUID {clientGuid} bulunamadı!");
+            }
         }
+
 
         /// **✅ İstemcinin atanmış GUID'ini döndürür, yoksa yeni bir istemci atar**
         public static Guid GetClientGuidFromConfig()
         {
-            XDocument doc = XDocument.Load(guidFilePath);
+            string configFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Guid.Config.xml");
+
+            if (!File.Exists(configFilePath))
+            {
+                Console.WriteLine("⚠️ Guid.Config.xml bulunamadı! Varsayılan dosya oluşturuluyor...");
+                CreateDefaultGuidXml();
+            }
+
+            XDocument doc = XDocument.Load(configFilePath);
             XElement clientsElement = doc.Element("GuidConfig").Element("Clients");
 
+            // **İlk olarak zaten kullanılan bir istemci var mı?**
+            var inUseClient = clientsElement.Elements("Client")
+                .FirstOrDefault(c => c.Element("IsUsed").Value == "true");
+
+            if (inUseClient != null)
+            {
+                Console.WriteLine("⚠️ Kullanılan bir istemci tekrar bağlanıyor!");
+                return Guid.Parse(inUseClient.Element("ClientId").Value);
+            }
+
+            // **Kullanılmayan bir istemci var mı?**
             var availableClient = clientsElement.Elements("Client")
                 .FirstOrDefault(c => c.Element("IsUsed").Value == "false");
 
             if (availableClient == null)
             {
-                Console.WriteLine("⚠️ Kullanılabilir istemci GUID bulunamadı! Yeni bir GUID oluşturuluyor...");
-                Guid newGuid = Guid.NewGuid();
-                XElement newClient = new XElement("Client",
-                    new XElement("Name", $"Client_{clientsElement.Elements().Count()}"),
-                    new XElement("ClientId", newGuid.ToString()),
-                    new XElement("IsUsed", "false")
-                );
-                clientsElement.Add(newClient);
-                doc.Save(guidFilePath);
-                return newGuid;
+                Console.WriteLine("⚠️ Kullanılabilir istemci GUID bulunamadı!");
+                throw new Exception("Yeni istemci oluşturulamaz! Maksimum iki istemci kullanılabilir.");
             }
 
-            // **GUID'i al ve kullanılabilirliği güncelle**
+            // 🔹 GUID'i al ve kullanılabilirliği güncelle
             Guid clientGuid = Guid.Parse(availableClient.Element("ClientId").Value);
-            UpdateClientUsage(clientGuid, true);
+            availableClient.Element("IsUsed").Value = "true";
+
+            try
+            {
+                doc.Save(configFilePath);
+                Console.WriteLine($"✅ İstemci GUID tekrar kullanıldı: {clientGuid}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Hata: GUID kaydedilemedi: {ex.Message}");
+            }
 
             return clientGuid;
         }

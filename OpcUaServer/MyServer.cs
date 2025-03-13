@@ -1,5 +1,6 @@
 ﻿using Opc.Ua;
 using Opc.Ua.Server;
+using OPCCommonLibrary;
 using OpcUaServer;
 using System;
 using System.Collections.Generic;
@@ -36,7 +37,11 @@ public class MyServer : StandardServer
             var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
             if (nodeManager != null)
             {
-                await nodeManager.RegisterClientNode(session.SessionDiagnostics.SessionId, clientId); // clientGuid yerine clientId
+                await nodeManager.RegisterClientNode(session.SessionDiagnostics.SessionId, clientId);
+
+                // 🔥 İstemci bağlanınca PostgreSQL’den yetkili tag'larını yükle!
+                var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientId);
+                Console.WriteLine($"✅ {authorizedTags.Count} yetkilendirilmiş tag yüklendi.");
             }
         }
         catch (Exception ex)
@@ -44,7 +49,6 @@ public class MyServer : StandardServer
             Console.WriteLine($"❌ Node oluşturma hatası: {ex.Message}");
         }
     }
-
 
 
     public void RemoveSession(Session session)

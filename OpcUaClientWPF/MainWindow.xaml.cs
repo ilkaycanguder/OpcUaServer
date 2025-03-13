@@ -90,7 +90,7 @@ public partial class MainWindow : Window
             {
                 conn.Open();
 
-                string query = "SELECT \"Id\", \"TagName\", \"TagValue\" FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"Id\" = ANY(@TagIds)";
+                string query = "SELECT \"id\", \"TagName\", \"TagValue\" FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"id\" = ANY(@TagIds)";
 
                 using (var cmd = new NpgsqlCommand(query, conn))
                 {
@@ -336,7 +336,6 @@ public partial class MainWindow : Window
                 new UserIdentity(new AnonymousIdentityToken()),
                 null);
 
-            await GetOpcUaNodes(clientGuid);
 
             subscription = new Subscription(session.DefaultSubscription)
             {
@@ -393,6 +392,7 @@ public partial class MainWindow : Window
             }
 
             subscription.ApplyChanges();
+            await GetOpcUaNodes(clientGuid);
         }
         catch (Exception ex)
         {

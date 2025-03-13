@@ -45,7 +45,19 @@ namespace OpcUaServer
                 var clientId = _myServer.GetClientId(session);
                 _myServer.RemoveSession(session);
 
-                // **Client GUID artık aktif değil!**
+                using (var connection = new NpgsqlConnection(DatabaseHelper.connectionString))
+                {
+                    await connection.OpenAsync();
+                    var query = "UPDATE \"TESASch\".\"clientyetkilendirme\" SET readaccess = false, writeaccess = false, subscribeaccess = false WHERE clientguid = @ClientGuid";
+
+                    using (var cmd = new NpgsqlCommand(query, connection))
+                    {
+                        cmd.Parameters.AddWithValue("@ClientGuid", clientId.ToString());
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // 🔹 GUID tekrar kullanılabilir hale getiriliyor
                 GuidHelper.UpdateClientUsage(clientId, false);
 
                 Console.WriteLine($"🔴 Client Bağlantısı Kapatıldı | Client ID: {clientId} | Sebep: {reason}");
