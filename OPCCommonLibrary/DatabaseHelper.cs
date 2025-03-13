@@ -65,14 +65,14 @@ namespace OPCCommonLibrary
             {
                 await conn.OpenAsync();
 
-                // 1️⃣ Client'in yetkili olduğu tagid değerlerini al
+                // 🔥 PostgreSQL'de text UUID ile karşılaştırma yaparken CAST etmek gerekebilir
                 string query = "SELECT tagid FROM \"TESASch\".\"clientyetkilendirme\" WHERE clientguid::text = @ClientGuid";
 
                 using (var cmd = new NpgsqlCommand(query, conn))
                 {
                     cmd.Parameters.AddWithValue("@ClientGuid", clientGuid.ToString());
 
-                    using (var reader = await cmd.ExecuteReaderAsync()) // **ASYNC OKUMA**
+                    using (var reader = await cmd.ExecuteReaderAsync())
                     {
                         while (await reader.ReadAsync())
                         {
@@ -80,7 +80,6 @@ namespace OPCCommonLibrary
 
                             if (tagIds.Length > 0)
                             {
-                                // 2️⃣ Yeni bağlantı açarak `comp_tag_dtl` tablosundan tagleri al
                                 using (var tagConn = new NpgsqlConnection(connectionString))
                                 {
                                     await tagConn.OpenAsync();
@@ -91,7 +90,7 @@ namespace OPCCommonLibrary
                                     {
                                         tagCmd.Parameters.AddWithValue("@TagIds", tagIds);
 
-                                        using (var tagReader = await tagCmd.ExecuteReaderAsync()) // **ASYNC OKUMA**
+                                        using (var tagReader = await tagCmd.ExecuteReaderAsync())
                                         {
                                             while (await tagReader.ReadAsync())
                                             {
@@ -111,6 +110,7 @@ namespace OPCCommonLibrary
                     }
                 }
             }
+            Console.WriteLine($"🔍 Yetkilendirilmiş {authorizedTags.Count} tag bulundu!");
             return authorizedTags;
         }
     }

@@ -66,53 +66,63 @@ public partial class MainWindow : Window
         {
             OpcTags.Clear();
 
-            // 1. Önce clientGuid'e göre yetkili tag ID'lerini al
+            // 1️⃣ Client'in yetkili olduğu tag ID'lerini al
             var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientGuid);
-            foreach (var tag in authorizedTags)
-            {
-                OpcTags.Add(tag);
-            }
+
             if (authorizedTags.Count == 0)
             {
                 UpdateStatus("⚠️ Bu istemci için yetkilendirilmiş tag bulunamadı!", Brushes.Orange);
                 return;
             }
 
-            // 2. Yetkili tag ID'lerine göre comp_tag_dtl tablosundan tag isimlerini al
+            // 🔹 **Sadece tag ID'lerini çek**
+            var tagIds = authorizedTags.Select(t => t.Id).ToArray();
+
+            // 🔥 **Eğer hiç tag ID yoksa işlemi durdur**
+            if (tagIds.Length == 0)
+            {
+                UpdateStatus("⚠️ Yetkilendirilmiş tag bulunamadı!", Brushes.Orange);
+                return;
+            }
+
+            // 2️⃣ Yetkili tag ID'lerine göre `comp_tag_dtl` tablosundan tag isimlerini al
             using (var conn = new NpgsqlConnection(DatabaseHelper.connectionString))
             {
                 conn.Open();
 
-                // Tag ID'lerini virgülle ayırılmış string olarak biçimlendir
-                string tagIdsStr = string.Join(",", authorizedTags);
-
-                string query = $"SELECT \"Id\", \"TagName\" FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"Id\" IN ({tagIdsStr})";
+                string query = "SELECT \"Id\", \"TagName\", \"TagValue\" FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"Id\" = ANY(@TagIds)";
 
                 using (var cmd = new NpgsqlCommand(query, conn))
-                using (var reader = cmd.ExecuteReader())
                 {
-                    while (reader.Read())
-                    {
-                        int tagId = reader.GetInt32(0);
-                        string tagName = reader.GetString(1);
+                    cmd.Parameters.AddWithValue("@TagIds", tagIds);
 
-                        OpcTags.Add(new OpcTag
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
                         {
-                            Id = tagId,
-                            TagName = tagName,
-                            LastUpdate = DateTime.Now
-                        });
+                            int tagId = reader.GetInt32(0);
+                            string tagName = reader.GetString(1);
+                            int tagValue = reader.GetInt32(2); // 🔥 Tag değerini de ekledik
+
+                            OpcTags.Add(new OpcTag
+                            {
+                                Id = tagId,
+                                TagName = tagName,
+                                TagValue = tagValue,
+                                LastUpdate = DateTime.Now
+                            });
+                        }
                     }
                 }
             }
 
-            // İstemci adını al
+            // 🔹 **İstemci adını al**
             string clientName = GuidHelper.GetClientNameByGuid(clientGuid);
 
-            // Sonuçları günlüğe kaydet
+            // 🔹 **Sonuçları günlüğe kaydet**
             Console.WriteLine($"📊 {clientName} ({clientGuid}) için {OpcTags.Count} yetkili tag yüklendi");
 
-            // Kullanıcı arayüzünü güncelle
+            // 🔹 **Kullanıcı arayüzünü güncelle**
             UpdateStatus($"✅ İstemci: {clientName}, GUID: {clientGuid}, {OpcTags.Count} yetkili OPC UA tag'ı yüklendi.", Brushes.Green);
         }
         catch (Exception ex)
@@ -121,6 +131,7 @@ public partial class MainWindow : Window
             Console.WriteLine($"❌ Tag Yükleme Hatası: {ex.Message}");
         }
     }
+
 
     private async Task BrowseNodesRecursively(NodeId nodeId, string path, int depth = 0, int maxDepth = 3)
     {

@@ -470,22 +470,45 @@ class MyNodeManager : CustomNodeManager2
             }
         }
     }
-    private bool IsClientAuthorized(Guid clientGuid, string nodeId, string accessType)
+    private bool IsClientAuthorized(Guid clientGuid, string tagName, string accessType)
     {
-
         using (var connection = new NpgsqlConnection(DatabaseHelper.connectionString))
         {
             connection.Open();
-            var query = $"SELECT {accessType} FROM ClientYetkilendirme WHERE ClientGuid = @ClientGuid AND NodeId = @NodeId";
+
+            // Önce tagName'e karşılık gelen tagid'yi al
+            int? tagId = null;
+            string tagIdQuery = "SELECT id FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"TagName\" = @TagName";
+
+            using (var cmd = new NpgsqlCommand(tagIdQuery, connection))
+            {
+                cmd.Parameters.AddWithValue("@TagName", tagName);
+                var result = cmd.ExecuteScalar();
+                if (result != null)
+                {
+                    tagId = (int)result;
+                }
+            }
+
+            if (!tagId.HasValue)
+            {
+                Console.WriteLine($"⚠️ Veritabanında Tag Bulunamadı: {tagName}");
+                return false;
+            }
+
+            // Yetkiyi kontrol et
+            string query = $"SELECT {accessType} FROM \"TESASch\".\"clientyetkilendirme\" WHERE clientguid = @ClientGuid::text AND tagid @> ARRAY[@TagId]";
+
             using (var cmd = new NpgsqlCommand(query, connection))
             {
-                cmd.Parameters.AddWithValue("@ClientGuid", clientGuid);
-                cmd.Parameters.AddWithValue("@NodeId", nodeId);
+                cmd.Parameters.AddWithValue("@ClientGuid", clientGuid.ToString()); // 🔹 String'e çevir
+                cmd.Parameters.AddWithValue("@TagId", tagId.Value);
                 var result = cmd.ExecuteScalar();
                 return result != null && (bool)result;
             }
         }
     }
+
     private void NotifyAuthorizedClients(NodeId nodeId, object newValue)
     {
         lock (Lock)
@@ -495,15 +518,17 @@ class MyNodeManager : CustomNodeManager2
             using (var connection = new NpgsqlConnection(DatabaseHelper.connectionString))
             {
                 connection.Open();
-                var query = "SELECT ClientGuid FROM \"TESASch\".clientyetkilendirme WHERE NodeId = @NodeId AND SubscribeAccess = TRUE";
+                var query = "SELECT ClientGuid FROM \"TESASch\".clientyetkilendirme WHERE SubscribeAccess = TRUE";
+
                 using (var cmd = new NpgsqlCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@NodeId", nodeId.ToString());
+
                     using (var reader = cmd.ExecuteReader())
                     {
                         while (reader.Read())
                         {
-                            authorizedClients.Add(reader.GetGuid(0));
+                            authorizedClients.Add(Guid.Parse(reader.GetString(0))); // 🔹 `TEXT`'i tekrar `Guid` yap
                         }
                     }
                 }
@@ -515,7 +540,6 @@ class MyNodeManager : CustomNodeManager2
             {
                 if (clientNodes.TryGetValue(clientGuid, out var clientFolder))
                 {
-                    // 🔥 **Folder içindeki değişkeni bul ve güncelle**
                     var clientVariable = clientFolder.FindChild(SystemContext, new QualifiedName("ClientValue", NamespaceIndex)) as BaseDataVariableState;
 
                     if (clientVariable != null)
