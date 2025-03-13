@@ -1,4 +1,5 @@
-﻿using Opc.Ua;
+﻿using Npgsql;
+using Opc.Ua;
 using Opc.Ua.Server;
 using OPCCommonLibrary;
 using System;
@@ -24,7 +25,7 @@ class MyNodeManager : CustomNodeManager2
     }
 
     // Yeni eklenen metot - Client node'u oluşturma
-    public void RegisterClientNode(NodeId sessionId)
+    public async Task RegisterClientNode(NodeId sessionId, Guid clientGuid)
     {
         lock (Lock)
         {
@@ -73,10 +74,26 @@ class MyNodeManager : CustomNodeManager2
                     UserAccessLevel = AccessLevels.CurrentReadOrWrite,
                     Value = DateTime.Now
                 };
+                BaseDataVariableState clientVariable = new BaseDataVariableState(clientFolder)
+                {
+                    NodeId = new NodeId($"{clientNodeName}_Value", NamespaceIndex),
+                    BrowseName = new QualifiedName("ClientValue", NamespaceIndex),
+                    DisplayName = new LocalizedText("Client Value"),
+                    DataType = DataTypeIds.Int32,
+                    ValueRank = ValueRanks.Scalar,
+                    AccessLevel = AccessLevels.CurrentReadOrWrite,
+                    UserAccessLevel = AccessLevels.CurrentReadOrWrite,
+                    Value = 0  // Başlangıç değeri
+                };
+
+                // **FolderState İçine Ekleyelim**
+                clientFolder.AddChild(clientVariable);
 
                 // Değişkenleri klasöre ekle
                 clientFolder.AddChild(clientStatus);
                 clientFolder.AddChild(clientConnectTime);
+                clientNodes[clientGuid] = clientFolder;
+                Console.WriteLine($"✅ Client Node başarıyla oluşturuldu: {clientGuid}");
 
                 // Client node'unu objects klasörüne bağla
                 IList<IReference> references = new List<IReference>();
@@ -328,12 +345,16 @@ class MyNodeManager : CustomNodeManager2
                 variable.Timestamp = DateTime.UtcNow;
                 variable.ClearChangeMasks(SystemContext, true);
 
+                // 🔥 Yetkili istemcilere bildir
+                NotifyAuthorizedClients(variable.NodeId, newValue);
+
                 return ServiceResult.Good;
             }
         }
 
         return StatusCodes.BadTypeMismatch;
     }
+
 
     private void NotifyClients(BaseDataVariableState variable, int newValue)
     {
@@ -446,6 +467,73 @@ class MyNodeManager : CustomNodeManager2
             if (string.IsNullOrEmpty(currentMessage) || currentMessage == lastClientMessage)
             {
                 return;
+            }
+        }
+    }
+    private bool IsClientAuthorized(Guid clientGuid, string nodeId, string accessType)
+    {
+
+        using (var connection = new NpgsqlConnection(DatabaseHelper.connectionString))
+        {
+            connection.Open();
+            var query = $"SELECT {accessType} FROM ClientYetkilendirme WHERE ClientGuid = @ClientGuid AND NodeId = @NodeId";
+            using (var cmd = new NpgsqlCommand(query, connection))
+            {
+                cmd.Parameters.AddWithValue("@ClientGuid", clientGuid);
+                cmd.Parameters.AddWithValue("@NodeId", nodeId);
+                var result = cmd.ExecuteScalar();
+                return result != null && (bool)result;
+            }
+        }
+    }
+    private void NotifyAuthorizedClients(NodeId nodeId, object newValue)
+    {
+        lock (Lock)
+        {
+            var authorizedClients = new List<Guid>();
+
+            using (var connection = new NpgsqlConnection(DatabaseHelper.connectionString))
+            {
+                connection.Open();
+                var query = "SELECT ClientGuid FROM \"TESASch\".clientyetkilendirme WHERE NodeId = @NodeId AND SubscribeAccess = TRUE";
+                using (var cmd = new NpgsqlCommand(query, connection))
+                {
+                    cmd.Parameters.AddWithValue("@NodeId", nodeId.ToString());
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            authorizedClients.Add(reader.GetGuid(0));
+                        }
+                    }
+                }
+            }
+
+            Console.WriteLine($"🔹 Yetkilendirilmiş {authorizedClients.Count} istemci bulundu.");
+
+            foreach (var clientGuid in authorizedClients)
+            {
+                if (clientNodes.TryGetValue(clientGuid, out var clientFolder))
+                {
+                    // 🔥 **Folder içindeki değişkeni bul ve güncelle**
+                    var clientVariable = clientFolder.FindChild(SystemContext, new QualifiedName("ClientValue", NamespaceIndex)) as BaseDataVariableState;
+
+                    if (clientVariable != null)
+                    {
+                        clientVariable.Value = newValue;
+                        clientVariable.Timestamp = DateTime.UtcNow;
+                        clientVariable.ClearChangeMasks(SystemContext, true);
+                        Console.WriteLine($"✅ Güncellendi: {clientGuid} -> {newValue}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"⚠️ Client değişkeni bulunamadı: {clientGuid}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"⚠️ ClientFolder bulunamadı: {clientGuid}");
+                }
             }
         }
     }

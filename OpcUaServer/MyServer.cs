@@ -18,27 +18,34 @@ public class MyServer : StandardServer
     {
         base.OnServerStarted(server);
         _sessionManager = new MySessionManager(this, server, Configuration);
-        server.SessionManager.SessionCreated += (session, reason) => _sessionManager.OnSessionCreated(session, server);
-        server.SessionManager.SessionClosing += (session, reason) => _sessionManager.OnSessionDeleted(session, reason);
+        server.SessionManager.SessionCreated += (session, reason) => _sessionManager.OnSessionCreatedAsync(session, server);
+        server.SessionManager.SessionClosing += (session, reason) => _sessionManager.OnSessionDeletedAsync(session, reason);
+    }
+    public Guid GetClientId(Session session)
+    {
+        return _activeSessions.FirstOrDefault(x => x.Value == session).Key;
     }
 
-    public void AddSession(Session session)
+    public async Task AddSessionAsync(Session session, Guid clientId)
     {
-        Guid clientId = Guid.NewGuid();  // Yeni Client için GUID oluştur
         _activeSessions[clientId] = session;
-
         Console.WriteLine($"🟢 Yeni Client Bağlandı: {clientId}, Aktif Client Sayısı: {_activeSessions.Count}");
 
         try
         {
             var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-            nodeManager?.RegisterClientNode(session.SessionDiagnostics.SessionId);
+            if (nodeManager != null)
+            {
+                await nodeManager.RegisterClientNode(session.SessionDiagnostics.SessionId, clientId); // clientGuid yerine clientId
+            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"❌ Node oluşturma hatası: {ex.Message}");
         }
     }
+
+
 
     public void RemoveSession(Session session)
     {

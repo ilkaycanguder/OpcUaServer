@@ -23,4 +23,16 @@
     <ProjectReference Include="..\OPCCommonLibrary\OPCCommonLibrary.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Guid.Config.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+	<Target Name="CopyGuidConfig" AfterTargets="PostBuildEvent">
+		<Copy SourceFiles="$(ProjectDir)Guid.Config.xml"
+			  DestinationFiles="$(SolutionDir)OpcUaServer\bin\Debug\net6.0\Guid.Config.xml"
+			  OverwriteReadOnlyFiles="true" />
+	</Target>
+
 </Project>

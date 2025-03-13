@@ -1,4 +1,5 @@
-﻿using Opc.Ua;
+﻿using Npgsql;
+using Opc.Ua;
 using Opc.Ua.Client;
 using Opc.Ua.Configuration;
 using OPCCommonLibrary;
@@ -24,6 +25,7 @@ namespace OpcUaClientWPF;
 public partial class MainWindow : Window
 {
     private Session session;
+
     private Subscription subscription;
     private const string ServerUrl = "opc.tcp://localhost:4840/UA/OpcUaServer";
     private string namespaceUri = "urn:opcua:chat";
@@ -36,39 +38,90 @@ public partial class MainWindow : Window
         InitializeComponent();
         this.DataContext = this;
 
-        // UI başlatıldıktan sonra OPC UA istemcisini başlat
-        Loaded += async (s, e) => await InitializeOpcUaClient();
+        Loaded += async (s, e) =>
+        {
+            try
+            {
+                // 🔹 Guid.Config.xml'den ilk kullanılmayan Client GUID'ini al
+                Guid clientGuid = GuidHelper.GetClientGuidFromConfig();
+
+                Console.WriteLine($"🟢 Client Bağlanıyor: {clientGuid}");
+                await InitializeOpcUaClient(clientGuid); // ✅ Sadece clientGuid gönderildi
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"❌ Hata: {ex.Message}", "Bağlantı Hatası", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        };
     }
-    public ObservableCollection<ChatMessage> MessageList => messageList;
-    private async Task GetOpcUaNodes()
+
+    private async Task GetOpcUaNodes(Guid clientGuid)
     {
         if (session == null || !session.Connected)
         {
             UpdateStatus("⚠️ OPC UA Sunucusuna bağlı değil!", Brushes.Red);
             return;
         }
-
         try
         {
             OpcTags.Clear();
-            UpdateStatus("PostgreSQL veritabanından OPC UA tag'ları alınıyor...", Brushes.Blue);
-            // Önce özel namespace'i kontrol et
-            // 🔥 Server’dan tag listesini al
-            var serverTags = DatabaseHelper.GetTagsFromDatabase();
 
-            foreach (var tag in serverTags)
+            // 1. Önce clientGuid'e göre yetkili tag ID'lerini al
+            var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientGuid);
+            foreach (var tag in authorizedTags)
             {
                 OpcTags.Add(tag);
             }
+            if (authorizedTags.Count == 0)
+            {
+                UpdateStatus("⚠️ Bu istemci için yetkilendirilmiş tag bulunamadı!", Brushes.Orange);
+                return;
+            }
 
-            tagsListView.ItemsSource = OpcTags;
-            UpdateStatus($"✅ {OpcTags.Count} adet OPC UA tag'ı başarıyla alındı.", Brushes.Green);
+            // 2. Yetkili tag ID'lerine göre comp_tag_dtl tablosundan tag isimlerini al
+            using (var conn = new NpgsqlConnection(DatabaseHelper.connectionString))
+            {
+                conn.Open();
+
+                // Tag ID'lerini virgülle ayırılmış string olarak biçimlendir
+                string tagIdsStr = string.Join(",", authorizedTags);
+
+                string query = $"SELECT \"Id\", \"TagName\" FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"Id\" IN ({tagIdsStr})";
+
+                using (var cmd = new NpgsqlCommand(query, conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        int tagId = reader.GetInt32(0);
+                        string tagName = reader.GetString(1);
+
+                        OpcTags.Add(new OpcTag
+                        {
+                            Id = tagId,
+                            TagName = tagName,
+                            LastUpdate = DateTime.Now
+                        });
+                    }
+                }
+            }
+
+            // İstemci adını al
+            string clientName = GuidHelper.GetClientNameByGuid(clientGuid);
+
+            // Sonuçları günlüğe kaydet
+            Console.WriteLine($"📊 {clientName} ({clientGuid}) için {OpcTags.Count} yetkili tag yüklendi");
+
+            // Kullanıcı arayüzünü güncelle
+            UpdateStatus($"✅ İstemci: {clientName}, GUID: {clientGuid}, {OpcTags.Count} yetkili OPC UA tag'ı yüklendi.", Brushes.Green);
         }
         catch (Exception ex)
         {
             UpdateStatus($"⚠️ OPC UA Node Okuma Hatası: {ex.Message}", Brushes.Red);
+            Console.WriteLine($"❌ Tag Yükleme Hatası: {ex.Message}");
         }
     }
+
     private async Task BrowseNodesRecursively(NodeId nodeId, string path, int depth = 0, int maxDepth = 3)
     {
         if (depth > maxDepth) return; // Sonsuz döngüyü önlemek için
@@ -195,47 +248,60 @@ public partial class MainWindow : Window
             Console.WriteLine($"MonitoredItem ekleme hatası: {ex.Message}");
         }
     }
-
-
-
-    private async Task InitializeOpcUaClient()
+    public async Task ConnectToOpcUaServer()
     {
         try
         {
-            UpdateStatus("OPC UA İstemcisi başlatılıyor...", Brushes.Blue);
+            // 🔥 Yeni Client oluştur veya mevcut Client GUID'ini yükle
+            var (clientName, clientGuid) = GuidHelper.GetOrCreateClient();
 
-            // OPC UA Yapılandırma Dosyası
+            Console.WriteLine($"🟢 Client Bağlanıyor: {clientGuid} ({clientName})");
+
+            // OPC UA Bağlantısı
+            await InitializeOpcUaClient(clientGuid);
+
+            // Bağlandıktan sonra GUI'ye yazdır
+            Dispatcher.Invoke(() =>
+            {
+                statusTextBlock.Text = $"Bağlı Client ID: {clientGuid}";
+                statusTextBlock.Foreground = Brushes.Green;
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Client Bağlantı Hatası: {ex.Message}");
+        }
+    }
+
+    private async Task InitializeOpcUaClient(Guid clientGuid)
+    {
+        try
+        {
+            // OPC UA Yapılandırma Dosyası - her istemciye özel olabilir
             string configFilePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "OpcUaClient.Config.xml");
 
-            // Config.xml dosyasını oluştur
             await EnsureConfigurationFileExists(configFilePath);
 
-            // OPC UA Uygulama Tanımlaması
             ApplicationInstance application = new ApplicationInstance
             {
-                ApplicationName = "OpcUaWpfClient",
                 ApplicationType = ApplicationType.Client
             };
 
-            // XML Yapılandırmasını Yükle
             ApplicationConfiguration config = await application.LoadApplicationConfiguration(configFilePath, silent: false);
             if (config == null)
             {
                 throw new Exception("Yapılandırma dosyası yüklenemedi!");
             }
 
-            // Uygulama Tipini Doğrula
             if (config.ApplicationType != ApplicationType.Client)
             {
                 UpdateStatus("ApplicationType hatalı, Client olarak güncellendi.", Brushes.Orange);
                 config.ApplicationType = ApplicationType.Client;
             }
 
-            // Sertifika Kontrolü veya Oluşturulması
             bool certOK = await application.CheckApplicationInstanceCertificate(false, 2048);
             if (!certOK)
             {
-                UpdateStatus("Sertifika kontrol ediliyor...", Brushes.Orange);
                 certOK = await application.CheckApplicationInstanceCertificate(true, 2048);
                 if (!certOK)
                 {
@@ -245,35 +311,22 @@ public partial class MainWindow : Window
 
             application.ApplicationConfiguration = config;
 
-            // ✅ OPC UA SUNUCUSUNA BAĞLAN
             UpdateStatus($"PostgreSQL veritabanına bağlı OPC UA sunucusuna bağlanılıyor: {ServerUrl}", Brushes.Blue);
 
-            // Endpoint Seçimi
             var endpoint = CoreClientUtils.SelectEndpoint(ServerUrl, false, 15000);
             var configEndpoint = new ConfiguredEndpoint(null, endpoint, EndpointConfiguration.Create(config));
 
-            // **Oturum Açma ve Namespace Kontrolü**
             session = await Session.Create(
                 config,
                 configEndpoint,
                 false,
-                "OpcUaWpfClient",
+                clientGuid.ToString(),
                 60000,
                 new UserIdentity(new AnonymousIdentityToken()),
                 null);
 
-            session.FetchNamespaceTables();  // Namespace listesini çek
-            namespaceIndex = session.NamespaceUris.GetIndex(namespaceUri); // Namespace indexini güncelle
+            await GetOpcUaNodes(clientGuid);
 
-            if (namespaceIndex == -1)
-            {
-                Console.WriteLine("⚠️ Namespace Index -1! Client bağlantısı yenileniyor...");
-                throw new Exception("Namespace index alınamadı!");
-            }
-
-            UpdateStatus($"🟢 OPC UA sunucusuna bağlandı! Namespace Index: {namespaceIndex}", Brushes.Green);
-
-            // **SUBSCRIPTION OLUŞTUR (TÜM CLIENT'LAR İÇİN ANLIK GÜNCELLEME)**
             subscription = new Subscription(session.DefaultSubscription)
             {
                 PublishingInterval = 1000,
@@ -285,22 +338,33 @@ public partial class MainWindow : Window
             session.AddSubscription(subscription);
             subscription.Create();
 
-            // **OPC UA NODE'LERİNİ YÜKLE**
-            await GetOpcUaNodes();
+            session.FetchNamespaceTables();
+            namespaceIndex = session.NamespaceUris.GetIndex(namespaceUri);
 
-            // **TÜM OPC UA TAG’LERİNE MONITOR EKLE**
+            if (namespaceIndex == -1)
+            {
+                throw new Exception("Namespace index alınamadı!");
+            }
+
+            UpdateStatus($"🟢 OPC UA sunucusuna bağlandı! GUID: {clientGuid}, Namespace Index: {namespaceIndex}", Brushes.Green);
+
+            // **Yetkilendirilmiş OPC UA Node'larını PostgreSQL'den al**
+            var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientGuid);
+            OpcTags.Clear();
+            foreach (var tag in authorizedTags)
+            {
+                OpcTags.Add(tag);
+            }
+
+            UpdateStatus($"✅ {OpcTags.Count} yetkilendirilmiş OPC UA tag'ı alındı.", Brushes.Green);
+
             foreach (var tag in OpcTags)
             {
                 AddMonitoredItem(tag);
             }
 
-            // **SUNUCU MESAJLARINI DİNLE**
             var messageTag = OpcTags.FirstOrDefault(t => t.TagName.Contains("MessageFromServer"));
-            if (messageTag != null)
-            {
-                UpdateStatus($"✅ Sunucu mesaj tag'ı bulundu: {messageTag.TagName}", Brushes.Green);
-            }
-            else
+            if (messageTag == null)
             {
                 MonitoredItem monitoredItem = new MonitoredItem(subscription.DefaultItem)
                 {
@@ -317,7 +381,6 @@ public partial class MainWindow : Window
                 UpdateStatus("✅ Varsayılan sunucu mesajları dinleniyor...", Brushes.Green);
             }
 
-            // **DEĞİŞİKLİKLERİ UYGULA**
             subscription.ApplyChanges();
         }
         catch (Exception ex)
@@ -326,6 +389,7 @@ public partial class MainWindow : Window
             MessageBox.Show($"Bağlantı hatası: {ex.Message}", "Hata", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
 
     // Sunucudan gelen mesajları işle
     private void OnServerMessageReceived(MonitoredItem monitoredItem, MonitoredItemNotificationEventArgs e)
@@ -349,84 +413,7 @@ public partial class MainWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    // Mesaj gönder butonuna tıklama
-    private async void SendButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (session == null || !session.Connected)
-        {
-            UpdateStatus("Sunucuya bağlı değil!", Brushes.Red);
-            return;
-        }
 
-        //string message = messageTextBox.Text.Trim();
-        //if (string.IsNullOrEmpty(message))
-        //{
-        //    return;
-        //}
-
-        //try
-        //{
-        //    await SendMessageToServer(message);
-        //    AddMessage(message, "Ben", true);
-        //    messageTextBox.Clear();
-        //}
-        //catch (Exception ex)
-        //{
-        //    UpdateStatus($"Mesaj gönderme hatası: {ex.Message}", Brushes.Red);
-        //}
-    }
-
-    // Sunucuya mesaj gönder
-    //private async Task SendMessageToServer(string message)
-    //{
-    //    try
-    //    {
-    //        if (session == null || !session.Connected)
-    //        {
-    //            UpdateStatus("⚠️ OPC UA Sunucusuna bağlı değil!", Brushes.Red);
-    //            return;
-    //        }
-
-    //        var messageTag = OpcTags.FirstOrDefault(t =>
-    //         t.TagName.Contains("MessageFromClient"));
-
-    //        NodeId nodeId = messageTag != null ? new NodeId(messageTag.TagName, (ushort)namespaceIndex)
-    //                                              : new NodeId("MessageFromClient", (ushort)namespaceIndex);
-
-    //        UpdateStatus($"PostgreSQL message tag'ı kullanılıyor: {messageTag?.TagName ?? "Varsayılan"}", Brushes.Green);
-
-    //        // ✅ Değer yazma işlemi
-    //        WriteValue valueToWrite = new WriteValue
-    //        {
-    //            NodeId = nodeId,
-    //            AttributeId = Attributes.Value,
-    //            Value = new DataValue(new Variant(message))
-    //        };
-
-    //        WriteValueCollection valuesToWrite = new WriteValueCollection { valueToWrite };
-    //        StatusCodeCollection results;
-    //        DiagnosticInfoCollection diagnosticInfos;
-
-    //        session.Write(null, valuesToWrite, out results, out diagnosticInfos);
-
-    //        if (results == null || results.Count == 0)
-    //        {
-    //            UpdateStatus("❌ Mesaj gönderme hatası: Sonuç boş!", Brushes.Red);
-    //        }
-    //        else if (results[0] != StatusCodes.Good)
-    //        {
-    //            UpdateStatus($"❌ Mesaj gönderme hatası: {results[0]}", Brushes.Red);
-    //        }
-    //        else
-    //        {
-    //            UpdateStatus("✅ Mesaj başarıyla PostgreSQL veritabanına gönderildi!", Brushes.Green);
-    //        }
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        UpdateStatus($"❌ Mesaj gönderme hatası: {ex.Message}", Brushes.Red);
-    //    }
-    //}
     private async void UpdateMessageOnServer(ChatMessage message)
     {
         if (session == null || !session.Connected)
@@ -498,9 +485,7 @@ public partial class MainWindow : Window
             Timestamp = DateTime.Now,
             IsOutgoing = isOutgoing
         };
-
         messageList.Add(message);
-        //chatListBox.ScrollIntoView(message);
     }
 
     // Durum güncellemesi
@@ -606,13 +591,6 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
-    private void messageTextBox_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == System.Windows.Input.Key.Enter)
-        {
-            SendButton_Click(sender, e);
-        }
-    }
 
     private void EditMessage_Click(object sender, RoutedEventArgs e)
     {
@@ -775,33 +753,4 @@ public partial class MainWindow : Window
             }
         }
     }
-
-
-
-    //private void addTagButton_Click(object sender, RoutedEventArgs e)
-    //{
-    //    string tagName = newTagNameTextBox.Text.Trim();
-    //    string tagValueString = newTagValueTextBox.Text.Trim(); // Yeni değer
-
-    //    if (string.IsNullOrEmpty(tagName) || string.IsNullOrEmpty(tagValueString))
-    //    {
-    //        MessageBox.Show("Lütfen geçerli bir Tag Name ve Tag Value giriniz.", "Uyarı", MessageBoxButton.OK, MessageBoxImage.Warning);
-    //        return;
-    //    }
-
-    //    if (!int.TryParse(tagValueString, out int newTagValue))
-    //    {
-    //        MessageBox.Show("Lütfen Tag Value için geçerli bir sayı giriniz.", "Hata", MessageBoxButton.OK, MessageBoxImage.Error);
-    //        return;
-    //    }
-
-    //    //DatabaseHelper.InsertNewTag(tagName, newTagValue);
-
-    //    // ✅ UI Güncelleme
-    //    OpcTags.Add(new OpcTag { TagName = tagName, TagValue = newTagValue, LastUpdate = DateTime.Now });
-
-    //    // ✅ UI temizleme
-    //    newTagNameTextBox.Clear();
-    //    newTagValueTextBox.Clear();
-    //}
 }

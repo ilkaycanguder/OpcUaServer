@@ -90,6 +90,4 @@ namespace OPCCommonLibrary
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
-
-
 }
