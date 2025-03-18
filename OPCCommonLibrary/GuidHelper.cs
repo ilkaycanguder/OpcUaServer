@@ -95,52 +95,39 @@ namespace OPCCommonLibrary
             }
         }
 
-        /// **✅ Zaten açık olan istemcileri kontrol et ve tekrar bağlanmasını önle**
         public static (string clientName, Guid clientGuid) GetOrCreateClient()
         {
             XDocument doc = XDocument.Load(guidFilePath);
             XElement clientsElement = doc.Element("GuidConfig").Element("Clients");
 
-            // 1️⃣ Kullanılabilir istemcileri al (`IsUsed = false`)
+            Console.WriteLine("🟢 **Mevcut istemciler:**");
+            foreach (var c in clientsElement.Elements("Client"))
+            {
+                Console.WriteLine($"   🔹 {c.Element("Name").Value} | GUID: {c.Element("ClientId").Value} | IsUsed: {c.Element("IsUsed").Value}");
+            }
+
             XElement availableClient = clientsElement.Elements("Client")
                 .FirstOrDefault(c => c.Element("IsUsed").Value == "false");
 
             if (availableClient == null)
             {
-                throw new Exception("❌ Yeni istemci oluşturulamaz! Maksimum iki istemci kullanılabilir.");
+                Console.WriteLine("❌ **Yeni istemci atanamadı: Tüm istemciler kullanılıyor!**");
+                throw new Exception("Yeni istemci oluşturulamaz! Maksimum iki istemci kullanılabilir.");
             }
 
-            // 2️⃣ PostgreSQL’de istemci kayıtlı mı kontrol et
             string clientGuidText = availableClient.Element("ClientId").Value;
-            if (!IsClientRegisteredInDatabase(clientGuidText))
-            {
-                throw new Exception($"❌ İstemci veritabanında kayıtlı değil! GUID: {clientGuidText}");
-            }
 
-            // 3️⃣ GUID'i al ve kullanılabilirliği güncelle
+
+            // **GUID'i kullanılmış olarak işaretle**
             Guid clientGuid = Guid.Parse(clientGuidText);
             availableClient.Element("IsUsed").Value = "true";
             doc.Save(guidFilePath);
 
-            Console.WriteLine($"✅ İstemci atandı: {availableClient.Element("Name").Value}, GUID: {clientGuid}");
+            Console.WriteLine($"✅ **İstemci atandı:** {availableClient.Element("Name").Value}, GUID: {clientGuid}");
             return (availableClient.Element("Name").Value, clientGuid);
         }
-        private static bool IsClientRegisteredInDatabase(string clientGuid)
-        {
-            using (var connection = new NpgsqlConnection(DatabaseHelper.connectionString))
-            {
-                connection.Open();
-                string query = "SELECT COUNT(*) FROM \"TESASch\".\"clientyetkilendirme\" WHERE clientguid = @ClientGuid";
 
-                using (var cmd = new NpgsqlCommand(query, connection))
-                {
-                    cmd.Parameters.AddWithValue("@ClientGuid", clientGuid);
-                    int count = Convert.ToInt32(cmd.ExecuteScalar());
-
-                    return count > 0;
-                }
-            }
-        }
+    
 
 
         /// **✅ Client listesinde sıradaki boş istemciyi döndür**
@@ -165,36 +152,6 @@ namespace OPCCommonLibrary
             return (nextClient.name, nextClient.guid);
         }
 
-        /// **✅ İstemcinin kullanım durumunu güncelle**
-        public static void UpdateClientUsage(Guid clientGuid, bool isUsed)
-        {
-            string configFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Guid.Config.xml");
-
-            if (!File.Exists(configFilePath))
-            {
-                Console.WriteLine("⚠️ Guid.Config.xml bulunamadı! Varsayılan dosya oluşturuluyor...");
-                CreateDefaultGuidXml();
-            }
-
-            XDocument doc = XDocument.Load(configFilePath);
-            XElement clientsElement = doc.Element("GuidConfig").Element("Clients");
-
-            var clientElement = clientsElement.Elements("Client")
-                .FirstOrDefault(c => c.Element("ClientId").Value == clientGuid.ToString());
-
-            if (clientElement != null)
-            {
-                clientElement.Element("IsUsed").Value = isUsed ? "true" : "false";
-                doc.Save(configFilePath);
-                Console.WriteLine($"✅ İstemci durumu güncellendi: {clientGuid} -> IsUsed = {isUsed}");
-            }
-            else
-            {
-                Console.WriteLine($"⚠️ Hata: GUID {clientGuid} bulunamadı!");
-            }
-        }
-
-
         /// **✅ İstemcinin atanmış GUID'ini döndürür, yoksa yeni bir istemci atar**
         public static Guid GetClientGuidFromConfig()
         {
@@ -209,42 +166,48 @@ namespace OPCCommonLibrary
             XDocument doc = XDocument.Load(configFilePath);
             XElement clientsElement = doc.Element("GuidConfig").Element("Clients");
 
-            // **İlk olarak zaten kullanılan bir istemci var mı?**
             var inUseClient = clientsElement.Elements("Client")
                 .FirstOrDefault(c => c.Element("IsUsed").Value == "true");
 
             if (inUseClient != null)
             {
-                Console.WriteLine("⚠️ Kullanılan bir istemci tekrar bağlanıyor!");
-                return Guid.Parse(inUseClient.Element("ClientId").Value);
+                Guid clientGuid = Guid.Parse(inUseClient.Element("ClientId").Value);
+                Console.WriteLine($"🔄 **Bağlı istemci tekrar bağlanıyor:** {clientGuid}");
+                return clientGuid;
             }
 
-            // **Kullanılmayan bir istemci var mı?**
             var availableClient = clientsElement.Elements("Client")
                 .FirstOrDefault(c => c.Element("IsUsed").Value == "false");
 
             if (availableClient == null)
             {
-                Console.WriteLine("⚠️ Kullanılabilir istemci GUID bulunamadı!");
+                Console.WriteLine("⚠️ **Uyarı: Kullanılabilir istemci GUID bulunamadı!**");
                 throw new Exception("Yeni istemci oluşturulamaz! Maksimum iki istemci kullanılabilir.");
             }
 
-            // 🔹 GUID'i al ve kullanılabilirliği güncelle
-            Guid clientGuid = Guid.Parse(availableClient.Element("ClientId").Value);
+            Guid selectedGuid = Guid.Parse(availableClient.Element("ClientId").Value);
+
+            if (selectedGuid == Guid.Empty)
+            {
+                Console.WriteLine("❌ **Geçersiz GUID bulundu, session açılmayacak!**");
+                throw new Exception("Session açılmayacak, çünkü geçersiz GUID atandı.");
+            }
+
             availableClient.Element("IsUsed").Value = "true";
 
             try
             {
                 doc.Save(configFilePath);
-                Console.WriteLine($"✅ İstemci GUID tekrar kullanıldı: {clientGuid}");
+                Console.WriteLine($"✅ **İstemci GUID tekrar kullanıldı:** {selectedGuid}");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"⚠️ Hata: GUID kaydedilemedi: {ex.Message}");
             }
 
-            return clientGuid;
+            return selectedGuid;
         }
+
 
         /// **✅ Bağlı istemci GUID'ini döndür**
         public static string GetClientNameByGuid(Guid clientGuid)

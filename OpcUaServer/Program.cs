@@ -1,9 +1,7 @@
 ﻿using Opc.Ua;
 using Opc.Ua.Configuration;
-using Opc.Ua.Server;
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 class Program
@@ -12,56 +10,45 @@ class Program
     {
         try
         {
-            // Programatik olarak yapılandırma oluştur
-            ApplicationConfiguration config = CreateApplicationConfiguration();
-
             ApplicationInstance application = new ApplicationInstance
             {
                 ApplicationName = "OpcUaServer",
                 ApplicationType = ApplicationType.Server,
-                ApplicationConfiguration = config
+                ApplicationConfiguration = await CreateApplicationConfiguration()
             };
 
-            // Sertifikaları kontrol et
+            // Sertifikaları kontrol et ve gerekirse oluştur
             bool certOK = await application.CheckApplicationInstanceCertificate(false, 2048);
             if (!certOK)
             {
-                Console.WriteLine("Sertifika oluşturuluyor...");
+                Console.WriteLine("⏳ Sertifika oluşturuluyor...");
                 certOK = await application.CheckApplicationInstanceCertificate(true, 2048);
                 if (!certOK)
                 {
                     throw new Exception("Sertifika oluşturulamadı!");
                 }
+                Console.WriteLine("✅ Sertifika başarıyla oluşturuldu.");
             }
 
-            // Sunucuyu başlat
             MyServer server = new MyServer();
             await application.Start(server);
-
-            var nodeManager = server.CurrentInstance.NodeManager.NodeManagers
-                .OfType<MyNodeManager>()
-                .FirstOrDefault();
-            if (nodeManager == null)
-            {
-                throw new Exception("❌ NodeManager bulunamadı! Server doğru başlatılmış mı?");
-            }
-           
+            Console.WriteLine("✅ OPC UA Server Başlatıldı!");
+            Console.WriteLine("Sunucuyu durdurmak için ENTER tuşuna basın...");
             Console.ReadLine();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Hata: {ex.Message}");
-            Console.WriteLine($"Detaylı hata: {ex}");
+            Console.WriteLine($"❌ Hata: {ex.Message}");
+            Console.ReadLine(); // Konsol hemen kapanmasın diye
         }
     }
 
-    private static ApplicationConfiguration CreateApplicationConfiguration()
+    private static async Task<ApplicationConfiguration> CreateApplicationConfiguration()
     {
         // Sertifika dizini
         string certificateStorePath = Path.Combine(Directory.GetCurrentDirectory(), "CertificateStore");
         Directory.CreateDirectory(certificateStorePath);
 
-        // Yapılandırmayı programatik olarak oluştur
         var config = new ApplicationConfiguration
         {
             ApplicationName = "OpcUaServer",
@@ -97,8 +84,6 @@ class Program
                 MinimumCertificateKeySize = 1024
             },
 
-            TransportConfigurations = new TransportConfigurationCollection(),
-
             TransportQuotas = new TransportQuotas
             {
                 OperationTimeout = 120000,
@@ -106,16 +91,13 @@ class Program
                 MaxByteStringLength = 1048576,
                 MaxArrayLength = 65535,
                 MaxMessageSize = 4194304,
-                MaxBufferSize = 65535,
-                ChannelLifetime = 300000,
-                SecurityTokenLifetime = 3600000
+                MaxBufferSize = 65535
             },
 
             ServerConfiguration = new ServerConfiguration
             {
                 BaseAddresses = new StringCollection
                 {
-                    "opc.tcp://0.0.0.0:4840/UA/OpcUaServer",
                     "opc.tcp://localhost:4840/UA/OpcUaServer"
                 },
                 SecurityPolicies = new ServerSecurityPolicyCollection
@@ -133,12 +115,12 @@ class Program
                 },
                 MinRequestThreadCount = 5,
                 MaxRequestThreadCount = 100,
-                MaxQueuedRequestCount = 2000
+                MaxSessionCount = 50
             },
 
             TraceConfiguration = new TraceConfiguration
             {
-                OutputFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "OpcUaServer.txt"),
+                OutputFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "OpcUaServer.log"),
                 DeleteOnLoad = true
             }
         };
@@ -147,9 +129,8 @@ class Program
         Directory.CreateDirectory(Path.GetDirectoryName(config.TraceConfiguration.OutputFilePath));
 
         // Yapılandırmayı doğrula
-        config.Validate(ApplicationType.Server);
+        await config.Validate(ApplicationType.Server);
 
         return config;
     }
-
 }

@@ -1,71 +1,68 @@
 ﻿using Opc.Ua;
 using Opc.Ua.Server;
-using OPCCommonLibrary;
-using OpcUaServer;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 public class MyServer : StandardServer
 {
-    private readonly Dictionary<Guid, Session> _activeSessions = new Dictionary<Guid, Session>();
-    private MySessionManager _sessionManager;
+    private readonly Dictionary<Guid, Session> activeSessions = new Dictionary<Guid, Session>();
+
+    // **Statik GUID Listesi (Sabit 2 Client)**
+    private static readonly Dictionary<Guid, string> predefinedClients = new Dictionary<Guid, string>
+    {
+        { new Guid("550e8400-e29b-41d4-a716-446655440000"), "Client_1" },
+        { new Guid("550e8400-e29b-41d4-a716-446655440001"), "Client_2" }
+    };
 
     protected override MasterNodeManager CreateMasterNodeManager(IServerInternal server, ApplicationConfiguration configuration)
     {
-        return new MasterNodeManager(server, configuration, null, new MyNodeManager(server, configuration));
+        List<INodeManager> nodeManagers = new List<INodeManager>();
+
+        // **MyNodeManager'ı oluştur ve session map'i ile başlat**
+        var nodeManager = new MyNodeManager(server, configuration, activeSessions);
+        nodeManagers.Add(nodeManager);
+
+        // **Ana NodeManager'ı oluştur**
+        return new MasterNodeManager(server, configuration, null, nodeManagers.ToArray());
     }
 
     protected override void OnServerStarted(IServerInternal server)
     {
         base.OnServerStarted(server);
-        _sessionManager = new MySessionManager(this, server, Configuration);
-        server.SessionManager.SessionCreated += (session, reason) => _sessionManager.OnSessionCreatedAsync(session, server);
-        server.SessionManager.SessionClosing += (session, reason) => _sessionManager.OnSessionDeletedAsync(session, reason);
-    }
-    public Guid GetClientId(Session session)
-    {
-        return _activeSessions.FirstOrDefault(x => x.Value == session).Key;
+
+        // **Oturum Yönetimi**
+        server.SessionManager.SessionCreated += OnSessionCreated;
+        server.SessionManager.SessionClosing += OnSessionDeleted;
     }
 
-    public async Task AddSessionAsync(Session session, Guid clientId)
+    private void OnSessionCreated(Session session, SessionEventReason reason)
     {
-        _activeSessions[clientId] = session;
-        Console.WriteLine($"🟢 Yeni Client Bağlandı: {clientId}, Aktif Client Sayısı: {_activeSessions.Count}");
-
-        try
+        var availableClient = predefinedClients.FirstOrDefault(c => !activeSessions.ContainsKey(c.Key));
+        if (availableClient.Key == Guid.Empty)
         {
+            Console.WriteLine("❌ Maksimum istemci sayısına ulaşıldı! Yeni istemci atanamadı.");
+            return;
+        }
+        activeSessions[availableClient.Key] = session;
+        Console.WriteLine($"🟢 Yeni Client Bağlandı: {availableClient.Value} | GUID: {availableClient.Key} | Aktif Client Sayısı: {activeSessions.Count}");
+
+        // **Client düğümünü UA Server'da göster**
+        var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
+        nodeManager?.RegisterClientNode(availableClient.Key);
+    }
+
+    private void OnSessionDeleted(Session session, SessionEventReason reason)
+    {
+        var clientEntry = activeSessions.FirstOrDefault(x => x.Value == session);
+        if (clientEntry.Key != Guid.Empty)
+        {
+            activeSessions.Remove(clientEntry.Key);
+            Console.WriteLine($"🔴 Client Bağlantısı Kapatıldı | Client: {predefinedClients[clientEntry.Key]} | GUID: {clientEntry.Key} | Aktif Client Sayısı: {activeSessions.Count}");
+
+            // **Client düğümünü UA Server'dan kaldır**
             var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-            if (nodeManager != null)
-            {
-                await nodeManager.RegisterClientNode(session.SessionDiagnostics.SessionId, clientId);
-
-                // 🔥 İstemci bağlanınca PostgreSQL’den yetkili tag'larını yükle!
-                var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientId);
-                Console.WriteLine($"✅ {authorizedTags.Count} yetkilendirilmiş tag yüklendi.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Node oluşturma hatası: {ex.Message}");
-        }
-    }
-
-
-    public void RemoveSession(Session session)
-    {
-        var clientId = _activeSessions.FirstOrDefault(x => x.Value == session).Key;
-        _activeSessions.Remove(clientId);
-
-        Console.WriteLine($"🔴 Client Bağlantısı Kapatıldı | Client ID: {clientId} | Aktif Client Sayısı: {_activeSessions.Count}");
-
-        try
-        {
-            var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-            nodeManager?.RemoveClientNode(session.SessionDiagnostics.SessionId);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Node kaldırma hatası: {ex.Message}");
+            nodeManager?.RemoveClientNode(clientEntry.Key);
         }
     }
 }
