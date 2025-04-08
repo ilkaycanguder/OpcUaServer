@@ -294,8 +294,9 @@ class Program
 
                 UserTokenPolicies = new UserTokenPolicyCollection
                 {
+                    new UserTokenPolicy(UserTokenType.Anonymous),
                     new UserTokenPolicy(UserTokenType.Certificate),
-                    new UserTokenPolicy(UserTokenType.UserName) 
+                    new UserTokenPolicy(UserTokenType.UserName)
                 }
             },
 
