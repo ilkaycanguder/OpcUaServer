@@ -3,6 +3,7 @@ using Opc.Ua.Server;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 public class MyServer : StandardServer
 {
@@ -31,6 +32,19 @@ public class MyServer : StandardServer
     {
         base.OnServerStarted(server);
 
+        // Oturum sürelerini yapılandır
+        try
+        {
+            Configuration.ServerConfiguration.MaxSessionTimeout = 3600000; // 1 saat
+            Configuration.ServerConfiguration.MaxRequestAge = 600000; // 10 dakika
+
+            Console.WriteLine("🔧 Sunucu oturum ayarları güncellendi");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Oturum ayarları güncellenirken hata: {ex.Message}");
+        }
+
         // **Oturum Yönetimi**
         server.SessionManager.SessionCreated += OnSessionCreated;
         server.SessionManager.SessionClosing += OnSessionDeleted;
@@ -38,31 +52,89 @@ public class MyServer : StandardServer
 
     private void OnSessionCreated(Session session, SessionEventReason reason)
     {
-        var availableClient = predefinedClients.FirstOrDefault(c => !activeSessions.ContainsKey(c.Key));
-        if (availableClient.Key == Guid.Empty)
+        try
         {
-            Console.WriteLine("❌ Maksimum istemci sayısına ulaşıldı! Yeni istemci atanamadı.");
-            return;
-        }
-        activeSessions[availableClient.Key] = session;
-        Console.WriteLine($"🟢 Yeni Client Bağlandı: {availableClient.Value} | GUID: {availableClient.Key} | Aktif Client Sayısı: {activeSessions.Count}");
+            // Kullanılabilir bir client bul
+            var availableClient = predefinedClients.FirstOrDefault(c => !activeSessions.ContainsKey(c.Key));
+            if (availableClient.Key == Guid.Empty)
+            {
+                // Tüm GUID'ler kullanılmışsa ilk kullanıcıyı temizle ve yeniden kullan
+                if (activeSessions.Count > 0)
+                {
+                    var oldestClient = activeSessions.Keys.First();
+                    Console.WriteLine("⚠️ Tüm GUID'ler kullanımda, eski bir oturumu yenisiyle değiştiriyorum: {0}", predefinedClients[oldestClient]);
+                    activeSessions.Remove(oldestClient);
+                    availableClient = new KeyValuePair<Guid, string>(oldestClient, predefinedClients[oldestClient]);
+                }
+                else
+                {
+                    Console.WriteLine("❌ Maksimum istemci sayısına ulaşıldı! Yeni istemci atanamadı.");
+                    return;
+                }
+            }
 
-        // **Client düğümünü UA Server'da göster**
-        var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-        nodeManager?.RegisterClientNode(availableClient.Key);
+            // Oturumu kaydet
+            activeSessions[availableClient.Key] = session;
+            Console.WriteLine($"🟢 Yeni Client Bağlandı: {availableClient.Value} | GUID: {availableClient.Key} | Aktif Client Sayısı: {activeSessions.Count}");
+            Console.WriteLine($"🟢 Oturum Bilgileri: SessionId={session.Id}");
+
+            // Client düğümünü UA Server'da göster (kısa bir gecikme ile)
+            ThreadPool.QueueUserWorkItem((_) =>
+            {
+                Thread.Sleep(500); // 500 ms gecikme
+                try
+                {
+                    var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
+                    nodeManager?.RegisterClientNode(availableClient.Key);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Düğüm kaydederken hata: {ex.Message}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Oturum oluşturma hatası: {ex.Message}");
+        }
     }
 
     private void OnSessionDeleted(Session session, SessionEventReason reason)
     {
-        var clientEntry = activeSessions.FirstOrDefault(x => x.Value == session);
-        if (clientEntry.Key != Guid.Empty)
+        try
         {
-            activeSessions.Remove(clientEntry.Key);
-            Console.WriteLine($"🔴 Client Bağlantısı Kapatıldı | Client: {predefinedClients[clientEntry.Key]} | GUID: {clientEntry.Key} | Aktif Client Sayısı: {activeSessions.Count}");
+            var clientEntry = activeSessions.FirstOrDefault(x => x.Value == session);
+            if (clientEntry.Key != Guid.Empty)
+            {
+                Console.WriteLine($"🔴 Client Bağlantısı Kapatılıyor | Client: {predefinedClients[clientEntry.Key]} | GUID: {clientEntry.Key} | Sebep: {reason}");
 
-            // **Client düğümünü UA Server'dan kaldır**
-            var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-            nodeManager?.RemoveClientNode(clientEntry.Key);
+                // Oturumu kaldır
+                activeSessions.Remove(clientEntry.Key);
+
+                // Client düğümünü kaldır (kısa bir gecikme ile)
+                ThreadPool.QueueUserWorkItem((_) =>
+                {
+                    Thread.Sleep(500); // 500 ms gecikme
+                    try
+                    {
+                        var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
+                        nodeManager?.RemoveClientNode(clientEntry.Key);
+                        Console.WriteLine($"🔴 Client Bağlantısı Kapatıldı | Client: {predefinedClients[clientEntry.Key]} | GUID: {clientEntry.Key} | Aktif Client Sayısı: {activeSessions.Count}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"⚠️ Düğüm kaldırırken hata: {ex.Message}");
+                    }
+                });
+            }
+            else
+            {
+                Console.WriteLine($"🔴 Bilinmeyen bir oturum kapatıldı: {session.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Oturum kapatma hatası: {ex.Message}");
         }
     }
 }

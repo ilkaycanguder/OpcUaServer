@@ -66,55 +66,9 @@ public partial class MainWindow : Window
         {
             OpcTags.Clear();
 
-            // 1️⃣ Client'in yetkili olduğu tag ID'lerini al
-            var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientGuid);
+          
 
-            if (authorizedTags.Count == 0)
-            {
-                UpdateStatus("⚠️ Bu istemci için yetkilendirilmiş tag bulunamadı!", Brushes.Orange);
-                return;
-            }
 
-            // 🔹 **Sadece tag ID'lerini çek**
-            var tagIds = authorizedTags.Select(t => t.Id).ToArray();
-
-            // 🔥 **Eğer hiç tag ID yoksa işlemi durdur**
-            if (tagIds.Length == 0)
-            {
-                UpdateStatus("⚠️ Yetkilendirilmiş tag bulunamadı!", Brushes.Orange);
-                return;
-            }
-
-            // 2️⃣ Yetkili tag ID'lerine göre `comp_tag_dtl` tablosundan tag isimlerini al
-            using (var conn = new NpgsqlConnection(DatabaseHelper.connectionString))
-            {
-                conn.Open();
-
-                string query = "SELECT \"id\", \"TagName\", \"TagValue\" FROM \"TESASch\".\"comp_tag_dtl\" WHERE \"id\" = ANY(@TagIds)";
-
-                using (var cmd = new NpgsqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@TagIds", tagIds);
-
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            int tagId = reader.GetInt32(0);
-                            string tagName = reader.GetString(1);
-                            int tagValue = reader.GetInt32(2); // 🔥 Tag değerini de ekledik
-
-                            OpcTags.Add(new OpcTag
-                            {
-                                Id = tagId,
-                                TagName = tagName,
-                                TagValue = tagValue,
-                                LastUpdate = DateTime.Now
-                            });
-                        }
-                    }
-                }
-            }
 
             // 🔹 **İstemci adını al**
             string clientName = GuidHelper.GetClientNameByGuid(clientGuid);
@@ -243,7 +197,6 @@ public partial class MainWindow : Window
                             // **Görsel UI güncellemesi için state değiştir**
                             VisualStateManager.GoToState(this, "UpdatedState", true);
 
-                            DatabaseHelper.UpdateTagValue(existingTag.TagName, existingTag.TagValue);
                         }
                     }
                     tagsListView.Items.Refresh();
@@ -359,12 +312,7 @@ public partial class MainWindow : Window
             UpdateStatus($"🟢 OPC UA sunucusuna bağlandı! GUID: {clientGuid}, Namespace Index: {namespaceIndex}", Brushes.Green);
 
             // **Yetkilendirilmiş OPC UA Node'larını PostgreSQL'den al**
-            var authorizedTags = await DatabaseHelper.GetAuthorizedTagsAsync(clientGuid);
             OpcTags.Clear();
-            foreach (var tag in authorizedTags)
-            {
-                OpcTags.Add(tag);
-            }
 
             UpdateStatus($"✅ {OpcTags.Count} yetkilendirilmiş OPC UA tag'ı alındı.", Brushes.Green);
 
@@ -717,9 +665,6 @@ public partial class MainWindow : Window
             if (results[0] == StatusCodes.Good)
             {
                 UpdateStatus($"✅ {nodeId} başarıyla güncellendi: {newValue}", Brushes.Green);
-
-                // **PostgreSQL Güncelle**
-                DatabaseHelper.UpdateTagValue(nodeId, newValue);
             }
             else
             {

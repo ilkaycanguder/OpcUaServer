@@ -34,4 +34,10 @@
 	  <ProjectReference Include="..\OPCCommonLibrary\OPCCommonLibrary.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <None Update="Certificates\your_certificate.pfx">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	</ItemGroup>
+
 </Project>

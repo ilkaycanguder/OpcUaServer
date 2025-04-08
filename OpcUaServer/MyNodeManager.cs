@@ -11,7 +11,11 @@ public class MyNodeManager : CustomNodeManager2
 
     // **Aktif oturumları takip eden sözlük (Client GUID -> Session)**
     private readonly Dictionary<Guid, Session> activeSessionMap;
-
+    private readonly Dictionary<Guid, List<string>> clientAllowedTags = new Dictionary<Guid, List<string>>
+    {
+        { new Guid("550e8400-e29b-41d4-a716-446655440000"), new List<string> { "ayd_status1", "ayd_auto_mode" } }, // Client_1
+        { new Guid("550e8400-e29b-41d4-a716-446655440001"), new List<string> { "*" } } // Client_2
+    };
     public MyNodeManager(IServerInternal server, ApplicationConfiguration config, Dictionary<Guid, Session> sessionMap)
         : base(server, config, Namespace)
     {
@@ -146,57 +150,120 @@ public class MyNodeManager : CustomNodeManager2
             Console.WriteLine("OPC UA Adres Alanı başarıyla oluşturuldu!");
         }
     }
+    protected override void OnMonitoredItemCreated(ServerSystemContext context, NodeHandle handle, MonitoredItem monitoredItem)
+    {
+        base.OnMonitoredItemCreated(context, handle, monitoredItem);
+
+        if (handle.Node is BaseDataVariableState variable)
+        {
+            string tagName = variable.BrowseName?.Name ?? "unknown";
+            NodeId currentSessionId = context.SessionId;
+
+            Guid matchedClientGuid = Guid.Empty;
+            foreach (var kvp in activeSessionMap)
+            {
+                if (kvp.Value?.Id == currentSessionId)
+                {
+                    matchedClientGuid = kvp.Key;
+                    break;
+                }
+            }
+
+            string clientName = matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440000") ? "Client_1" :
+                                matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440001") ? "Client_2" : "Unknown";
+
+            // Yetki kontrolü
+            bool isAllowed = false;
+            if (clientAllowedTags.TryGetValue(matchedClientGuid, out var allowedTags))
+            {
+                isAllowed = allowedTags.Contains("*") || allowedTags.Contains(tagName);
+            }
+
+            if (!isAllowed)
+            {
+                monitoredItem.SetMonitoringMode(MonitoringMode.Disabled);
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("⛔ [SUBSCRIBE REDDEDİLDİ]");
+                Console.WriteLine($"🔒 Client: {clientName}");
+                Console.WriteLine($"📛 Tag: {tagName}");
+                Console.WriteLine($"🚫 Erişim izni yok!");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("🔔 [SUBSCRIBE OLAYI]");
+                Console.WriteLine($"📄 İzlenen Tag: {tagName}");
+                Console.WriteLine($"👤 Client: {clientName}");
+                Console.ResetColor();
+            }
+        }
+    }
+
+
+    // Override with protected access modifier to match the base class
+    protected override void OnMonitoredItemDeleted(ServerSystemContext context, NodeHandle handle, MonitoredItem monitoredItem)
+    {
+        base.OnMonitoredItemDeleted(context, handle, monitoredItem);
+
+        if (handle.Node is BaseDataVariableState variable)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("📤 [UNSUBSCRIBE OLAYI]");
+            Console.WriteLine($"🗑️ Kaldırılan Tag: {variable.BrowseName}");
+            Console.WriteLine($"👤 SessionId: {context.SessionId}");
+            Console.ResetColor();
+        }
+    }
 
     private ServiceResult HandleTagValueUpdate(ISystemContext context, NodeState node, ref object value)
     {
         if (node is BaseDataVariableState variable)
         {
-            string nodeName = variable.BrowseName.Name;
-            string nodeId = $"NS{variable.NodeId.NamespaceIndex}|String|{variable.BrowseName.NamespaceIndex}_{variable.BrowseName.Name}";
+            string nodeName = variable.BrowseName?.Name ?? "Unknown";
+            NodeId currentSessionId = (context as ServerSystemContext)?.SessionId;
 
-            // **Geçerli OPC UA session'ın SessionId'sini al**
-            NodeId sessionId = (context as ServerSystemContext)?.SessionId;
-
-            if (sessionId == null)
+            Guid matchedClientGuid = Guid.Empty;
+            foreach (var kvp in activeSessionMap)
             {
-                Console.WriteLine($"Hata: Geçerli session bulunamadı! {nodeName}");
-                return StatusCodes.BadSessionIdInvalid;
+                if (kvp.Value?.Id == currentSessionId)
+                {
+                    matchedClientGuid = kvp.Key;
+                    break;
+                }
             }
 
-            // **SessionId ile Client GUID'ini bul**
-            Guid? clientGuid = activeSessionMap.FirstOrDefault(x => x.Value.SessionDiagnostics.SessionId == sessionId).Key;
+            string clientName = matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440000") ? "Client_1" :
+                                matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440001") ? "Client_2" : "Unknown";
 
-            if (clientGuid == null || clientGuid == Guid.Empty)
+            // Eğer yazılamazsa
+            if ((variable.UserAccessLevel & AccessLevels.CurrentWrite) == 0)
             {
-                Console.WriteLine($"Hata: Geçerli Client GUID bulunamadı! {nodeName}");
-                return StatusCodes.BadSessionIdInvalid;
-            }
-
-            // **Hangi Client olduğunu belirle**
-            string clientName = (clientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440000")) ? "Client_1" :
-                                (clientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440001")) ? "Client_2" : "Unknown";
-
-            // **Yetkilendirme kontrolü: Client_1 için yalnızca Read izinli**
-            if (clientName == "Client_1")
-            {
-                // Özel hata mesajı ekle
-                string errorNodeId = $"NS{variable.NodeId.NamespaceIndex}|String|{variable.Parent.BrowseName}.{variable.BrowseName.Name}";
-                Console.WriteLine($"❌ Yetkisiz Yazma Girişimi! Write to node '{errorNodeId}' failed [ret = BadNotWritable] | Client: {clientName}");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("❌ [YAZMA REDDEDİLDİ]");
+                Console.WriteLine($"🔒 Tag: {variable.NodeId}");
+                Console.WriteLine($"👤 Client: {clientName}");
+                Console.WriteLine($"📛 Yetki: Sadece Okuma (ReadOnly)");
+                Console.WriteLine($"⛔ Değer değiştirme işlemi engellendi.\n");
+                Console.ResetColor();
                 return StatusCodes.BadNotWritable;
             }
 
-            // **Yetkisi varsa, değeri güncelle**
-            Console.WriteLine($"✅ OPC UA Değişkeni güncellendi: {clientName} | {nodeName} = {value}");
-            variable.Value = value;
+            // Yazılabilir ise
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("✅ [TAG GÜNCELLENDİ]");
+            Console.WriteLine($"📍 Client: {clientName}");
+            Console.WriteLine($"📄 Tag: {nodeName}");
+            Console.ResetColor();
+
             variable.Timestamp = DateTime.UtcNow;
             variable.ClearChangeMasks(SystemContext, true);
-
             return ServiceResult.Good;
         }
 
         return StatusCodes.BadTypeMismatch;
     }
-
 
 
     private FolderState CreateFolder(NodeState parent, string name, string displayName)
