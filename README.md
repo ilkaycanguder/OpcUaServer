@@ -5,7 +5,7 @@ Proje Yapısı
 Çözüm aşağıdaki projelerden oluşmaktadır:
 
 OpcUaServer
-OPC UA protokolünü kullanan bir sunucu uygulaması. İstemcilerden gelen bağlantıları kabul eder ve verileri yönlendirir.
+OPC UA protokolünü kullanarak endüstriyel otomasyon sistemleri için bir sunucu uygulaması.
 
 Program.cs: Sunucu yapılandırması ve başlatma işlemlerini içerir
 MyServer.cs: OPC UA sunucu sınıfı
@@ -13,13 +13,13 @@ MyNodeManager.cs: OPC UA adres uzayını ve düğümleri yöneten sınıf
 OpcUaServer.Config.xml: Sunucu yapılandırma dosyası
 
 OpcUaClient
-Komut satırı tabanlı OPC UA istemci uygulaması.
+Komut satırı tabanlı OPC UA istemci uygulaması. (Geliştirme aşamasında)
 
 Program.cs: İstemci uygulamasının ana kodu
 OpcUaClient.Config.xml: İstemci yapılandırma dosyası
 
 OpcUaClientWPF
-Grafiksel kullanıcı arayüzüne sahip OPC UA istemci uygulaması.
+Grafiksel kullanıcı arayüzüne sahip OPC UA istemci uygulaması. (Geliştirme aşamasında)
 
 MainWindow.xaml/MainWindow.xaml.cs: Ana pencere ve uygulama mantığı
 Converters.cs: XAML veri dönüşümleri için yardımcı sınıflar
@@ -35,17 +35,17 @@ OPC UA protokolü üzerinden güvenli iletişim
 Gerçek zamanlı veri izleme ve kontrol
 Sohbet benzeri mesajlaşma özelliği
 Etiket (tag) değerlerinin izlenmesi ve değiştirilmesi
-WPF tabanlı modern kullanıcı arayüzü
-Client_1 yalnızca okuma (READ) erişimine sahiptir.
-Client_2 okuma ve yazma (READ/WRITE) erişimine sahiptir.
+WPF tabanlı modern kullanıcı arayüzü (Geliştirme aşamasında)
 Otomatik oturum yönetimi ve client takibi
 Detaylı loglama ve hata izleme
+Rol tabanlı erişim kontrolü
 
 Gereksinimler
 
 .NET Framework veya .NET Core
 OPC UA kütüphaneleri (OPC Foundation UA .NET Standard)
 OpenSSL (sertifika oluşturmak için)
+UaExpert (test için)
 
 Kurulum
 
@@ -60,15 +60,48 @@ Kurulum
      openssl x509 -outform der -in server_cert.pem -out server_cert.der
      ```
    - Sertifikaları uygulama dizinine kopyalayın
-3. Sunucu ve istemci yapılandırma dosyalarını ihtiyaçlarınıza göre düzenleyin.
+3. Sunucu yapılandırma dosyasını ihtiyaçlarınıza göre düzenleyin.
 
 Kullanım
 
 1. Önce OpcUaServer uygulamasını başlatın.
-2. Ardından OpcUaClientWPF veya OpcUaClient uygulamasını başlatın.
-3. İstemci otomatik olarak sunucuya bağlanacak ve mevcut etiketleri (tag) listeleyecektir.
-4. Client_1, yalnızca veri okuyabilir. Client_2, hem okuyabilir hem de yazabilir.
-5. Mesajlaşma özelliğini kullanmak için mesaj kutusuna metin girin ve gönder düğmesine tıklayın.
+2. UaExpert ile test edin:
+   - Yeni bir sunucu bağlantısı ekleyin
+   - URL: `opc.tcp://localhost:4840/UA/OpcUaServer`
+   - Security Mode: None
+   - Security Policy: None
+   - User Identity: Anonymous
+3. Tag'leri görüntüleyin ve test edin.
+
+Not: OpcUaClientWPF ve OpcUaClient uygulamaları şu anda geliştirme aşamasındadır. Testler için UaExpert kullanmanız önerilir.
+
+Rol Tabanlı Erişim Kontrolü
+
+1. Kullanıcı Rolleri:
+
+   - Admin: Tüm yetkilere sahip
+   - Guest: Sadece okuma yetkisine sahip
+   - Operator: Okuma ve yazma yetkisine sahip
+
+2. Yetki Seviyeleri:
+
+   - Admin:
+     - Tüm tagları okuyabilir ve yazabilir
+     - Yeni tag ekleyebilir
+     - Tag silebilir
+     - Kullanıcı yönetimi yapabilir
+   - Operator:
+     - Tüm tagları okuyabilir
+     - Belirli taglara yazabilir
+     - Tag değerlerini değiştirebilir
+   - Guest:
+     - Tagları sadece okuyabilir
+     - Değer değiştiremez
+
+3. Kimlik Doğrulama:
+   - Kullanıcı adı/şifre ile giriş
+   - Rol bazlı yetkilendirme
+   - Oturum yönetimi
 
 Güvenlik
 
@@ -91,11 +124,13 @@ Uygulama, OPC UA protokolünün güvenlik özelliklerini kullanır:
    - Anonymous (Anonim) erişim
    - Kullanıcı adı/şifre doğrulaması
    - Sertifika tabanlı doğrulama
+   - Rol tabanlı yetkilendirme
 
 4. Oturum Yönetimi:
    - Maksimum oturum süresi: 1 saat
    - Maksimum istek yaşı: 10 dakika
    - Otomatik oturum temizleme
+   - Rol bazlı oturum kontrolü
 
 UaExpert ile Test Etme
 
@@ -113,9 +148,17 @@ UaExpert ile Test Etme
    - "Trusted Certificates" sekmesine sertifikanızı ekleyin
 
 3. Bağlantı sorunları yaşarsanız:
+
    - Sertifikaları yeniden oluşturun
    - UaExpert'i yeniden başlatın
    - Güvenlik ayarlarını "None" olarak ayarlayın
+
+4. Test Adımları:
+   - Sunucuya bağlanın
+   - Tag'leri görüntüleyin
+   - Değerleri okuyun
+   - Değerleri yazın (yetkiniz varsa)
+   - Rol bazlı erişim kontrolünü test edin
 
 Lisans
 Bu proje MIT Lisansı altında lisanslanmıştır. Daha fazla bilgi için LICENSE dosyasını inceleyebilirsiniz.

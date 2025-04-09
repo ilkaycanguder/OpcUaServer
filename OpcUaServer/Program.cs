@@ -22,16 +22,16 @@ class Program
             if (!Directory.Exists(certDir))
             {
                 Directory.CreateDirectory(certDir);
-                Console.WriteLine($"✓ Sertifika dizini oluşturuldu: {certDir}");
+                Console.WriteLine($"Sertifika dizini oluşturuldu: {certDir}");
             }
 
             // PFX dosyası için kesin yol tanımla
             string customCertificatePath = Path.Combine(certDir, "your_certificate.pfx");
-            Console.WriteLine($"✓ Sertifika Aranacak Yol: {customCertificatePath}");
+            Console.WriteLine($"Sertifika Aranacak Yol: {customCertificatePath}");
 
             // Dosya var mı kontrol et
             bool certExists = File.Exists(customCertificatePath);
-            Console.WriteLine($"✓ Sertifika Dosyası Mevcut: {certExists}");
+            Console.WriteLine($"Sertifika Dosyası Mevcut: {certExists}");
 
             // Eğer dosya yoksa, PFX dosyasını dosya sisteminden kopyala
             if (!certExists)
@@ -41,12 +41,12 @@ class Program
                 if (File.Exists(sourcePfxFile))
                 {
                     File.Copy(sourcePfxFile, customCertificatePath, true);
-                    Console.WriteLine($"✓ Sertifika dosyası kopyalandı: {sourcePfxFile} -> {customCertificatePath}");
+                    Console.WriteLine($"Sertifika dosyası kopyalandı: {sourcePfxFile} -> {customCertificatePath}");
                     certExists = true;
                 }
                 else
                 {
-                    Console.WriteLine($"❌ Kaynak sertifika dosyası bulunamadı: {sourcePfxFile}");
+                    Console.WriteLine($"Kaynak sertifika dosyası bulunamadı: {sourcePfxFile}");
                 }
             }
 
@@ -77,13 +77,13 @@ class Program
             config.CertificateValidator.CertificateValidation += (sender, e) =>
             {
                 e.Accept = true;
-                Console.WriteLine($"✓ İstemci sertifikası kabul edildi: {e.Certificate.Subject}");
+                Console.WriteLine($"İstemci sertifikası kabul edildi: {e.Certificate.Subject}");
             };
 
             // Özel sertifikayı kullanma
             if (certExists)
             {
-                Console.WriteLine("🔐 Özel SSL sertifikası kullanılıyor...");
+                Console.WriteLine("Özel SSL sertifikası kullanılıyor...");
                 try
                 {
                     // Sertifika şifresi - OpenSSL ile PFX oluştururken girdiğiniz şifre
@@ -97,8 +97,8 @@ class Program
                     );
 
                     // Sertifika hakkında bilgileri yazdır
-                    Console.WriteLine($"✓ Sertifika Yüklendi: {applicationCertificate.Subject}");
-                    Console.WriteLine($"✓ Sertifika Geçerlilik: {applicationCertificate.NotBefore} - {applicationCertificate.NotAfter}");
+                    Console.WriteLine($"Sertifika Yüklendi: {applicationCertificate.Subject}");
+                    Console.WriteLine($"Sertifika Geçerlilik: {applicationCertificate.NotBefore} - {applicationCertificate.NotAfter}");
 
                     // ÖNEMLİ: Sertifikayı OPC UA uygulamasına doğru şekilde tanımla
                     config.SecurityConfiguration.ApplicationCertificate.Certificate = applicationCertificate;
@@ -111,7 +111,7 @@ class Program
 
                     // ApplicationUri'yi manuel olarak ayarla
                     config.ApplicationUri = $"urn:{commonName}:OpcUaServer";
-                    Console.WriteLine($"✓ Uygulama URI'si güncellendi: {config.ApplicationUri}");
+                    Console.WriteLine($"Uygulama URI'si güncellendi: {config.ApplicationUri}");
 
                     // Alternatif Yöntem: Sertifikayı OPC UA Store'a kaydet
                     // Bu, sertifikanın OPC UA tarafından bulunmasını sağlar
@@ -119,19 +119,19 @@ class Program
                     Directory.CreateDirectory(certStorePath);
                     string certFile = Path.Combine(certStorePath, "cert.der");
                     File.WriteAllBytes(certFile, applicationCertificate.RawData);
-                    Console.WriteLine($"✓ Sertifika OPC UA sertifika deposuna kopyalandı: {certFile}");
+                    Console.WriteLine($"Sertifika OPC UA sertifika deposuna kopyalandı: {certFile}");
 
                     // Özel sertifikayı DER formatında da dışa aktar (UaExpert için)
                     string derFile = Path.Combine(certDir, "server_cert.der");
                     File.WriteAllBytes(derFile, applicationCertificate.RawData);
-                    Console.WriteLine($"✓ Özel sertifika DER formatında dışa aktarıldı: {derFile}");
+                    Console.WriteLine($"Özel sertifika DER formatında dışa aktarıldı: {derFile}");
 
-                    Console.WriteLine("✅ Özel SSL sertifikası başarıyla yüklendi.");
+                    Console.WriteLine("Özel SSL sertifikası başarıyla yüklendi.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Özel sertifika yüklenirken hata oluştu: {ex.Message}");
-                    Console.WriteLine("⚠️ Otomatik oluşturulan sertifika kullanılacak.");
+                    Console.WriteLine($"Özel sertifika yüklenirken hata oluştu: {ex.Message}");
+                    Console.WriteLine("Otomatik oluşturulan sertifika kullanılacak.");
                     certExists = false;
                 }
             }
@@ -139,17 +139,17 @@ class Program
             // Özel sertifika kullanılmıyorsa otomatik olarak oluştur
             if (!certExists)
             {
-                Console.WriteLine("🔐 Otomatik sertifika kontrolü yapılıyor...");
+                Console.WriteLine("Otomatik sertifika kontrolü yapılıyor...");
                 bool certOK = await application.CheckApplicationInstanceCertificate(false, 2048);
                 if (!certOK)
                 {
-                    Console.WriteLine("⏳ Sertifika oluşturuluyor...");
+                    Console.WriteLine("Sertifika oluşturuluyor...");
                     certOK = await application.CheckApplicationInstanceCertificate(true, 2048);
                     if (!certOK)
                     {
                         throw new Exception("Sertifika oluşturulamadı!");
                     }
-                    Console.WriteLine("✅ Sertifika başarıyla oluşturuldu.");
+                    Console.WriteLine("Sertifika başarıyla oluşturuldu.");
 
                     // Oluşturulan sertifikayı DER formatında dışa aktar (UaExpert için)
                     var autoGenCert = config.SecurityConfiguration.ApplicationCertificate.Certificate;
@@ -157,7 +157,7 @@ class Program
                     {
                         string derFile = Path.Combine(certDir, "server_cert.der");
                         File.WriteAllBytes(derFile, autoGenCert.RawData);
-                        Console.WriteLine($"✅ Otomatik oluşturulan sertifika DER formatında dışa aktarıldı: {derFile}");
+                        Console.WriteLine($"Otomatik oluşturulan sertifika DER formatında dışa aktarıldı: {derFile}");
                     }
                 }
             }
@@ -166,13 +166,13 @@ class Program
             await config.Validate(ApplicationType.Server);
 
             // Sunucuyu başlat
-            Console.WriteLine("✓ Sunucu başlatılıyor...");
+            Console.WriteLine("Sunucu başlatılıyor...");
             try
             {
                 MyServer server = new MyServer();
                 await application.Start(server);
-                Console.WriteLine("✅ OPC UA Server Başlatıldı!");
-                Console.WriteLine("✅ Endpoint URLs:");
+                Console.WriteLine("OPC UA Server Başlatıldı!");
+                Console.WriteLine("Endpoint URLs:");
                 foreach (var endpoint in config.ServerConfiguration.BaseAddresses)
                 {
                     Console.WriteLine($"  - {endpoint}");
@@ -182,11 +182,11 @@ class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Sunucu başlatılırken hata oluştu: {ex.Message}");
-                Console.WriteLine($"❌ Detaylı hata: {ex}");
+                Console.WriteLine($"Sunucu başlatılırken hata oluştu: {ex.Message}");
+                Console.WriteLine($"Detaylı hata: {ex}");
 
                 // Son çare: Otomatik sertifika oluşturma ve sunucuyu başlatma
-                Console.WriteLine("🔄 Otomatik sertifika oluşturma deneniyor...");
+                Console.WriteLine("Otomatik sertifika oluşturma deneniyor...");
 
                 // Yeni bir uygulama örneği oluştur
                 ApplicationInstance alternativeApp = new ApplicationInstance
@@ -199,14 +199,14 @@ class Program
                 await alternativeApp.CheckApplicationInstanceCertificate(true, 2048);
                 MyServer newServer = new MyServer();
                 await alternativeApp.Start(newServer);
-                Console.WriteLine("✅ OPC UA Server alternatif yöntemle başlatıldı!");
+                Console.WriteLine("OPC UA Server alternatif yöntemle başlatıldı!");
                 Console.ReadLine();
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Hata: {ex.Message}");
-            Console.WriteLine($"❌ Stack Trace: {ex.StackTrace}");
+            Console.WriteLine($"Hata: {ex.Message}");
+            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
             Console.ReadLine(); // Konsol hemen kapanmasın diye
         }
     }
@@ -295,8 +295,8 @@ class Program
                 UserTokenPolicies = new UserTokenPolicyCollection
                 {
                     new UserTokenPolicy(UserTokenType.Anonymous),
-                    new UserTokenPolicy(UserTokenType.Certificate),
-                    new UserTokenPolicy(UserTokenType.UserName)
+                    new UserTokenPolicy(UserTokenType.UserName),
+                    new UserTokenPolicy(UserTokenType.Certificate)
                 }
             },
 

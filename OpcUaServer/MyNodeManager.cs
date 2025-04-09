@@ -1,5 +1,6 @@
 ﻿using Opc.Ua;
 using Opc.Ua.Server;
+using OpcUaServer;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,6 +8,7 @@ using System.Linq;
 public class MyNodeManager : CustomNodeManager2
 {
     private const string Namespace = "urn:opcua:chat";
+    private readonly UserRoleManager _userRoleManager = new UserRoleManager();
     private readonly Dictionary<Guid, FolderState> clientNodes = new Dictionary<Guid, FolderState>();
 
     // **Aktif oturumları takip eden sözlük (Client GUID -> Session)**
@@ -14,7 +16,8 @@ public class MyNodeManager : CustomNodeManager2
     private readonly Dictionary<Guid, List<string>> clientAllowedTags = new Dictionary<Guid, List<string>>
     {
         { new Guid("550e8400-e29b-41d4-a716-446655440000"), new List<string> { "ayd_status1", "ayd_auto_mode" } }, // Client_1
-        { new Guid("550e8400-e29b-41d4-a716-446655440001"), new List<string> { "*" } } // Client_2
+        { new Guid("550e8400-e29b-41d4-a716-446655440001"), new List<string> { "*" } }, // Client_2
+        { new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), new List<string> { "*" } } // Admin her şeyi görsün
     };
     public MyNodeManager(IServerInternal server, ApplicationConfiguration config, Dictionary<Guid, Session> sessionMap)
         : base(server, config, Namespace)
@@ -28,7 +31,7 @@ public class MyNodeManager : CustomNodeManager2
         {
             if (clientNodes.ContainsKey(clientGuid))
             {
-                Console.WriteLine($"⚠️ Client {clientGuid} zaten eklenmiş.");
+                Console.WriteLine($"Client {clientGuid} zaten eklenmiş.");
                 return;
             }
 
@@ -42,7 +45,7 @@ public class MyNodeManager : CustomNodeManager2
 
             clientNodes[clientGuid] = clientFolder;
             AddPredefinedNode(SystemContext, clientFolder);
-            Console.WriteLine($"✅ Client Folder başarıyla oluşturuldu: {clientGuid}");
+            Console.WriteLine($"Client Folder başarıyla oluşturuldu: {clientGuid}");
         }
     }
 
@@ -52,7 +55,7 @@ public class MyNodeManager : CustomNodeManager2
         {
             if (!clientNodes.ContainsKey(clientGuid))
             {
-                Console.WriteLine($"⚠️ Client Folder bulunamadı: {clientGuid}");
+                Console.WriteLine($"Client Folder bulunamadı: {clientGuid}");
                 return;
             }
 
@@ -99,6 +102,17 @@ public class MyNodeManager : CustomNodeManager2
                         ("ayd_status2", 1),
                         ("ayd_error_flag", 0)
                     }
+                },
+                {
+                    "Admin", new List<(string, int)>
+                    {
+                        ("ayd_auto_mode", 0),
+                        ("ayd_setman1", 1),
+                        ("ayd_status1", 1),
+                        ("ayd_setauto2", 1),
+                        ("ayd_status2", 0),
+                        ("ayd_error_flag", 0)
+                    }
                 }
             };
 
@@ -136,6 +150,11 @@ public class MyNodeManager : CustomNodeManager2
                         variable.AccessLevel = AccessLevels.CurrentReadOrWrite;
                         variable.UserAccessLevel = AccessLevels.CurrentReadOrWrite;
                     }
+                    else if (clientName == "Admin")
+                    {
+                        variable.AccessLevel = AccessLevels.CurrentReadOrWrite;
+                        variable.UserAccessLevel = AccessLevels.CurrentReadOrWrite;
+                    }
 
                     // **Yazma işlemi event'ini ekle**
                     variable.OnSimpleWriteValue = HandleTagValueUpdate;
@@ -157,49 +176,33 @@ public class MyNodeManager : CustomNodeManager2
         if (handle.Node is BaseDataVariableState variable)
         {
             string tagName = variable.BrowseName?.Name ?? "unknown";
-            NodeId currentSessionId = context.SessionId;
+            string username = context?.UserIdentity?.DisplayName ?? "unknown";
 
-            Guid matchedClientGuid = Guid.Empty;
-            foreach (var kvp in activeSessionMap)
-            {
-                if (kvp.Value?.Id == currentSessionId)
-                {
-                    matchedClientGuid = kvp.Key;
-                    break;
-                }
-            }
-
-            string clientName = matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440000") ? "Client_1" :
-                                matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440001") ? "Client_2" : "Unknown";
-
-            // Yetki kontrolü
-            bool isAllowed = false;
-            if (clientAllowedTags.TryGetValue(matchedClientGuid, out var allowedTags))
-            {
-                isAllowed = allowedTags.Contains("*") || allowedTags.Contains(tagName);
-            }
+            // Rol kontrolü
+            bool isAllowed = _userRoleManager.HasPermission(username, tagName);
 
             if (!isAllowed)
             {
                 monitoredItem.SetMonitoringMode(MonitoringMode.Disabled);
 
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("⛔ [SUBSCRIBE REDDEDİLDİ]");
-                Console.WriteLine($"🔒 Client: {clientName}");
-                Console.WriteLine($"📛 Tag: {tagName}");
-                Console.WriteLine($"🚫 Erişim izni yok!");
+                Console.WriteLine("[SUBSCRIBE REDDEDİLDİ]");
+                Console.WriteLine($"Kullanıcı: {username}");
+                Console.WriteLine($"Tag: {tagName}");
+                Console.WriteLine($"Erişim izni yok!");
                 Console.ResetColor();
             }
             else
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine("🔔 [SUBSCRIBE OLAYI]");
-                Console.WriteLine($"📄 İzlenen Tag: {tagName}");
-                Console.WriteLine($"👤 Client: {clientName}");
+                Console.WriteLine("[SUBSCRIBE OLAYI]");
+                Console.WriteLine($"İzlenen Tag: {tagName}");
+                Console.WriteLine($"Kullanıcı: {username}");
                 Console.ResetColor();
             }
         }
     }
+
 
 
     // Override with protected access modifier to match the base class
@@ -210,9 +213,9 @@ public class MyNodeManager : CustomNodeManager2
         if (handle.Node is BaseDataVariableState variable)
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine("📤 [UNSUBSCRIBE OLAYI]");
-            Console.WriteLine($"🗑️ Kaldırılan Tag: {variable.BrowseName}");
-            Console.WriteLine($"👤 SessionId: {context.SessionId}");
+            Console.WriteLine("[UNSUBSCRIBE OLAYI]");
+            Console.WriteLine($"Kaldırılan Tag: {variable.BrowseName}");
+            Console.WriteLine($"SessionId: {context.SessionId}");
             Console.ResetColor();
         }
     }
@@ -222,41 +225,40 @@ public class MyNodeManager : CustomNodeManager2
         if (node is BaseDataVariableState variable)
         {
             string nodeName = variable.BrowseName?.Name ?? "Unknown";
-            NodeId currentSessionId = (context as ServerSystemContext)?.SessionId;
+            string username = (context as ServerSystemContext)?.UserIdentity?.DisplayName ?? "unknown";
 
-            Guid matchedClientGuid = Guid.Empty;
-            foreach (var kvp in activeSessionMap)
+            // Rol kontrolü
+            bool isAllowed = _userRoleManager.HasPermission(username, nodeName);
+
+            if (!isAllowed)
             {
-                if (kvp.Value?.Id == currentSessionId)
-                {
-                    matchedClientGuid = kvp.Key;
-                    break;
-                }
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("[YAZMA REDDEDİLDİ - Yetki dışı erişim]");
+                Console.WriteLine($"Kullanıcı: {username}");
+                Console.WriteLine($"Tag: {nodeName}");
+                Console.ResetColor();
+                return StatusCodes.BadUserAccessDenied;
             }
 
-            string clientName = matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440000") ? "Client_1" :
-                                matchedClientGuid == Guid.Parse("550e8400-e29b-41d4-a716-446655440001") ? "Client_2" : "Unknown";
-
-            // Eğer yazılamazsa
+            // Tag'ın UserAccessLevel özelliği sadece read ise
             if ((variable.UserAccessLevel & AccessLevels.CurrentWrite) == 0)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("❌ [YAZMA REDDEDİLDİ]");
-                Console.WriteLine($"🔒 Tag: {variable.NodeId}");
-                Console.WriteLine($"👤 Client: {clientName}");
-                Console.WriteLine($"📛 Yetki: Sadece Okuma (ReadOnly)");
-                Console.WriteLine($"⛔ Değer değiştirme işlemi engellendi.\n");
+                Console.WriteLine("[YAZMA REDDEDİLDİ - ReadOnly Tag]");
+                Console.WriteLine($"Tag: {variable.NodeId}");
+                Console.WriteLine($"Kullanıcı: {username}");
                 Console.ResetColor();
                 return StatusCodes.BadNotWritable;
             }
 
-            // Yazılabilir ise
+            // ✅ Başarılı yazma
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("✅ [TAG GÜNCELLENDİ]");
-            Console.WriteLine($"📍 Client: {clientName}");
-            Console.WriteLine($"📄 Tag: {nodeName}");
+            Console.WriteLine("[TAG GÜNCELLENDİ]");
+            Console.WriteLine($"Kullanıcı: {username}");
+            Console.WriteLine($"Tag: {nodeName}");
             Console.ResetColor();
 
+            variable.Value = value;
             variable.Timestamp = DateTime.UtcNow;
             variable.ClearChangeMasks(SystemContext, true);
             return ServiceResult.Good;
@@ -264,6 +266,7 @@ public class MyNodeManager : CustomNodeManager2
 
         return StatusCodes.BadTypeMismatch;
     }
+
 
 
     private FolderState CreateFolder(NodeState parent, string name, string displayName)

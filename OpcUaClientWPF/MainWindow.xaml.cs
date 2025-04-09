@@ -65,10 +65,7 @@ public partial class MainWindow : Window
         try
         {
             OpcTags.Clear();
-
-          
-
-
+            await BrowseNodesRecursively(ObjectIds.ObjectsFolder, "");
 
             // 🔹 **İstemci adını al**
             string clientName = GuidHelper.GetClientNameByGuid(clientGuid);
