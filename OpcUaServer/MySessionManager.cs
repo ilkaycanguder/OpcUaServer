@@ -53,7 +53,7 @@ namespace OpcUaServer
 
                 // **OPC UA Sunucusuna istemci düğümünü ekle**
                 // Update the method call to match the correct signature
-                _nodeManager?.RegisterClientNode(clientGuid);
+                _nodeManager?.RegisterClientNode(clientGuid.ToString());
                 //_nodeManager?.RegisterClientNode(session.SessionDiagnostics.SessionId, clientGuid);
             }
             catch (Exception ex)

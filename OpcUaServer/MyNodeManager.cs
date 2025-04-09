@@ -10,42 +10,66 @@ public class MyNodeManager : CustomNodeManager2
     private const string Namespace = "urn:opcua:chat";
     private readonly UserRoleManager _userRoleManager = new UserRoleManager();
     private readonly Dictionary<Guid, FolderState> clientNodes = new Dictionary<Guid, FolderState>();
+    private FolderState _rootFolder; // sınıfın en üstüne ekle
+
+    private List<(string tagName, int initialValue)> GetTagTemplate()
+    {
+        return new List<(string, int)>
+    {
+        ("ayd_auto_mode", 0),
+        ("ayd_setman1", 1),
+        ("ayd_status1", 1),
+        ("ayd_setauto2", 0),
+        ("ayd_status2", 1),
+        ("ayd_error_flag", 0)
+    };
+    }
 
     // **Aktif oturumları takip eden sözlük (Client GUID -> Session)**
     private readonly Dictionary<Guid, Session> activeSessionMap;
-    private readonly Dictionary<Guid, List<string>> clientAllowedTags = new Dictionary<Guid, List<string>>
-    {
-        { new Guid("550e8400-e29b-41d4-a716-446655440000"), new List<string> { "ayd_status1", "ayd_auto_mode" } }, // Client_1
-        { new Guid("550e8400-e29b-41d4-a716-446655440001"), new List<string> { "*" } }, // Client_2
-        { new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), new List<string> { "*" } } // Admin her şeyi görsün
-    };
+    //private readonly Dictionary<Guid, List<string>> clientAllowedTags = new Dictionary<Guid, List<string>>
+    //{
+    //    { new Guid("550e8400-e29b-41d4-a716-446655440000"), new List<string> { "ayd_status1", "ayd_auto_mode" } }, // Client_1
+    //    { new Guid("550e8400-e29b-41d4-a716-446655440001"), new List<string> { "*" } }, // Client_2
+    //    { new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), new List<string> { "*" } } // Admin her şeyi görsün
+    //};
     public MyNodeManager(IServerInternal server, ApplicationConfiguration config, Dictionary<Guid, Session> sessionMap)
         : base(server, config, Namespace)
     {
         activeSessionMap = sessionMap;
     }
 
-    public void RegisterClientNode(Guid clientGuid)
+    public void RegisterClientNode(string username)
     {
         lock (Lock)
         {
-            if (clientNodes.ContainsKey(clientGuid))
+            if (clientNodes.ContainsKey(GuidFromName(username)))
             {
-                Console.WriteLine($"Client {clientGuid} zaten eklenmiş.");
+                Console.WriteLine($"⚠️ Kullanıcı {username} zaten eklenmiş.");
                 return;
             }
 
+            var userGuid = GuidFromName(username); // string → sabit GUID üret
+
             FolderState clientFolder = new FolderState(null)
             {
-                NodeId = new NodeId($"Client_{clientGuid}", NamespaceIndex),
-                BrowseName = new QualifiedName($"Client_{clientGuid}", NamespaceIndex),
-                DisplayName = new LocalizedText($"Client_{clientGuid}"),
+                NodeId = new NodeId($"Client_{username}", NamespaceIndex),
+                BrowseName = new QualifiedName($"Client_{username}", NamespaceIndex),
+                DisplayName = new LocalizedText(username),
                 TypeDefinitionId = ObjectTypeIds.FolderType
             };
 
-            clientNodes[clientGuid] = clientFolder;
+            clientNodes[userGuid] = clientFolder;
             AddPredefinedNode(SystemContext, clientFolder);
-            Console.WriteLine($"Client Folder başarıyla oluşturuldu: {clientGuid}");
+            Console.WriteLine($"✅ Kullanıcı klasörü oluşturuldu: {username}");
+        }
+    }
+    private Guid GuidFromName(string name)
+    {
+        using (var md5 = System.Security.Cryptography.MD5.Create())
+        {
+            byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(name));
+            return new Guid(hash);
         }
     }
 
@@ -69,106 +93,70 @@ public class MyNodeManager : CustomNodeManager2
     {
         lock (Lock)
         {
+            // 1. Ana klasörü oluştur
+            _rootFolder = CreateFolder(null, "EDBT1", "EDBT1");
 
-            // **Ana klasör oluştur**
-            FolderState rootFolder = CreateFolder(null, "EDBT1", "EDBT1");
-
-            // **Objects klasörüne referans ekle**
-            IList<IReference> references;
-            if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out references))
+            // 2. UA'nın ObjectsFolder'ına referans ekle
+            if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out var references))
             {
                 references = new List<IReference>();
                 externalReferences[ObjectIds.ObjectsFolder] = references;
             }
-            references.Add(new NodeStateReference(ReferenceTypeIds.Organizes, false, rootFolder.NodeId));
+            references.Add(new NodeStateReference(ReferenceTypeIds.Organizes, false, _rootFolder.NodeId));
+            _rootFolder.AddReference(ReferenceTypeIds.Organizes, true, ObjectIds.ObjectsFolder);
 
-            Console.WriteLine($"Ana klasör oluşturuldu: {rootFolder.BrowseName}");
+            // 3. Ana klasörü adres alanına ekle
+            AddPredefinedNode(SystemContext, _rootFolder);
 
-            // **Client bazlı tag listesi**
-            Dictionary<string, List<(string tagName, int initialValue)>> clientTags = new Dictionary<string, List<(string, int)>>()
-            {
-                {
-                    "Client_1", new List<(string, int)>
-                    {
-                        ("ayd_auto_mode", 0),
-                        ("ayd_setman1", 1),
-                        ("ayd_status1", 1)
-                    }
-                },
-                {
-                    "Client_2", new List<(string, int)>
-                    {
-                        ("ayd_setauto2", 0),
-                        ("ayd_status2", 1),
-                        ("ayd_error_flag", 0)
-                    }
-                },
-                {
-                    "Admin", new List<(string, int)>
-                    {
-                        ("ayd_auto_mode", 0),
-                        ("ayd_setman1", 1),
-                        ("ayd_status1", 1),
-                        ("ayd_setauto2", 1),
-                        ("ayd_status2", 0),
-                        ("ayd_error_flag", 0)
-                    }
-                }
-            };
-
-            foreach (var client in clientTags)
-            {
-                string clientName = client.Key;
-                List<(string tagName, int initialValue)> tags = client.Value;
-
-                // **Her istemci için ayrı bir klasör oluştur**
-                FolderState clientFolder = CreateFolder(rootFolder, clientName, clientName);
-
-                foreach (var (tagName, initialValue) in tags)
-                {
-                    var variable = new BaseDataVariableState(clientFolder)
-                    {
-                        NodeId = new NodeId($"{clientName}.{tagName}", NamespaceIndex),
-                        BrowseName = new QualifiedName(tagName, NamespaceIndex),
-                        DisplayName = new LocalizedText(tagName),
-                        DataType = DataTypeIds.Int32,
-                        ValueRank = ValueRanks.Scalar,
-                        AccessLevel = AccessLevels.CurrentReadOrWrite,
-                        UserAccessLevel = AccessLevels.CurrentReadOrWrite,
-                        Value = initialValue,
-                        Historizing = false
-                    };
-
-                    // **Yetkilendirme: Client_1 sadece kendi taglarını görsün**
-                    if (clientName == "Client_1")
-                    {
-                        variable.AccessLevel = AccessLevels.CurrentRead;
-                        variable.UserAccessLevel = AccessLevels.CurrentRead;
-                    }
-                    else if (clientName == "Client_2")
-                    {
-                        variable.AccessLevel = AccessLevels.CurrentReadOrWrite;
-                        variable.UserAccessLevel = AccessLevels.CurrentReadOrWrite;
-                    }
-                    else if (clientName == "Admin")
-                    {
-                        variable.AccessLevel = AccessLevels.CurrentReadOrWrite;
-                        variable.UserAccessLevel = AccessLevels.CurrentReadOrWrite;
-                    }
-
-                    // **Yazma işlemi event'ini ekle**
-                    variable.OnSimpleWriteValue = HandleTagValueUpdate;
-
-                    clientFolder.AddChild(variable);
-                    AddPredefinedNode(SystemContext, variable);
-
-                    Console.WriteLine($"OPC UA Değişkeni oluşturuldu: {clientName} | {tagName} = {initialValue}");
-                }
-            }
-
-            Console.WriteLine("OPC UA Adres Alanı başarıyla oluşturuldu!");
+            Console.WriteLine("✅ EDBT1 klasörü oluşturuldu ve ObjectsFolder'a bağlandı.");
         }
     }
+
+    public void RegisterUserTagNodes(string username)
+    {
+        lock (Lock)
+        {
+            var role = _userRoleManager.GetUserRole(username);
+            var allowedTags = _userRoleManager.GetAllowedTags(username);
+
+            if (_rootFolder == null)
+            {
+                Console.WriteLine("Root klasör bulunamadı! CreateAddressSpace çağrılmamış olabilir.");
+                return;
+            }
+
+            FolderState userFolder = CreateFolder(_rootFolder, username, username);
+
+            foreach (var (tagName, initialValue) in GetTagTemplate())
+            {
+                if (!allowedTags.Contains("*") && !allowedTags.Contains(tagName))
+                    continue;
+
+                // 🔐 Yetki kontrolü - sadece Admin ve Operator yazabilsin
+                bool isWriteAllowed = role != UserRole.Guest;
+
+                var variable = new BaseDataVariableState(userFolder)
+                {
+                    NodeId = new NodeId($"{username}.{tagName}", NamespaceIndex),
+                    BrowseName = new QualifiedName(tagName, NamespaceIndex),
+                    DisplayName = new LocalizedText(tagName),
+                    DataType = DataTypeIds.Int32,
+                    ValueRank = ValueRanks.Scalar,
+                    AccessLevel = isWriteAllowed ? AccessLevels.CurrentReadOrWrite : AccessLevels.CurrentRead,
+                    UserAccessLevel = isWriteAllowed ? AccessLevels.CurrentReadOrWrite : AccessLevels.CurrentRead,
+                    Value = initialValue,
+                    Historizing = false,
+                    OnSimpleWriteValue = HandleTagValueUpdate
+                };
+
+                AddPredefinedNode(SystemContext, variable);
+                userFolder.AddChild(variable);
+                Console.WriteLine($"[{username}] Tag eklendi: {tagName} = {initialValue}");
+            }
+        }
+    }
+
+
     protected override void OnMonitoredItemCreated(ServerSystemContext context, NodeHandle handle, MonitoredItem monitoredItem)
     {
         base.OnMonitoredItemCreated(context, handle, monitoredItem);
@@ -202,8 +190,6 @@ public class MyNodeManager : CustomNodeManager2
             }
         }
     }
-
-
 
     // Override with protected access modifier to match the base class
     protected override void OnMonitoredItemDeleted(ServerSystemContext context, NodeHandle handle, MonitoredItem monitoredItem)
@@ -240,13 +226,14 @@ public class MyNodeManager : CustomNodeManager2
                 return StatusCodes.BadUserAccessDenied;
             }
 
-            // Tag'ın UserAccessLevel özelliği sadece read ise
+            // Tag sadece okunabilir durumda ise
             if ((variable.UserAccessLevel & AccessLevels.CurrentWrite) == 0)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine("[YAZMA REDDEDİLDİ - ReadOnly Tag]");
-                Console.WriteLine($"Tag: {variable.NodeId}");
-                Console.WriteLine($"Kullanıcı: {username}");
+                Console.WriteLine($"❌ Kullanıcı: {username}");
+                Console.WriteLine($"📛 Tag: {nodeName}");
+                Console.WriteLine($"🔒 UserAccessLevel: {variable.UserAccessLevel}");
                 Console.ResetColor();
                 return StatusCodes.BadNotWritable;
             }
@@ -256,6 +243,7 @@ public class MyNodeManager : CustomNodeManager2
             Console.WriteLine("[TAG GÜNCELLENDİ]");
             Console.WriteLine($"Kullanıcı: {username}");
             Console.WriteLine($"Tag: {nodeName}");
+            Console.WriteLine($"Yeni Değer: {value}");
             Console.ResetColor();
 
             variable.Value = value;

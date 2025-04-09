@@ -11,7 +11,9 @@ public class MyServer : StandardServer
 {
     private readonly UserAccountManager _userManager;
     private readonly Dictionary<Guid, Session> activeSessions = new Dictionary<Guid, Session>();
+    private readonly Dictionary<string, Session> userSessionMap = new(); // username → session
     private MyNodeManager _nodeManager;
+
     private MySessionManager _sessionManager;
 
     public MyServer()
@@ -29,10 +31,11 @@ public class MyServer : StandardServer
     protected override MasterNodeManager CreateMasterNodeManager(IServerInternal server, ApplicationConfiguration configuration)
     {
         List<INodeManager> nodeManagers = new List<INodeManager>();
+        _nodeManager = new MyNodeManager(server, configuration, activeSessions);
 
         // **MyNodeManager'ı oluştur ve session map'i ile başlat**
-        var nodeManager = new MyNodeManager(server, configuration, activeSessions);
-        nodeManagers.Add(nodeManager);
+        //var nodeManager = new MyNodeManager(server, configuration, activeSessions);
+        nodeManagers.Add(_nodeManager); 
 
         // **Ana NodeManager'ı oluştur**
         return new MasterNodeManager(server, configuration, null, nodeManagers.ToArray());
@@ -72,14 +75,21 @@ public class MyServer : StandardServer
             if (!_userManager.ValidateUser(username, password))
             {
                 Console.WriteLine($"Kullanıcı doğrulama başarısız: {username}");
-                // ImpersonateEventArgs.Accepted değil, reject durumunda exception fırlatılır
                 throw new ServiceResultException(StatusCodes.BadUserAccessDenied, "Geçersiz kullanıcı");
             }
 
             Console.WriteLine($"Kullanıcı doğrulama başarılı: {username}");
-            // Accepted özelliği yoktur, başarılı doğrulama exception fırlatılmaması ile belirlenir
+
+            // 🧠 Tam burada tag oluştur!
+            _nodeManager?.RegisterUserTagNodes(username);
         }
-    }    
+        else
+        {
+            Console.WriteLine("Anonim bağlantı kabul edildi");
+            _nodeManager?.RegisterUserTagNodes("Anonymous");
+        }
+    }
+
     protected override void OnServerStopping()
     {
         if (ServerInternal != null && ServerInternal.SessionManager != null)
@@ -90,97 +100,16 @@ public class MyServer : StandardServer
         base.OnServerStopping();
     }
 
-    private void OnSessionCreated(Session session, SessionEventReason reason)
+    protected void OnSessionCreated(Session session, SessionEventReason reason)
     {
-        try
+        var username = session?.Identity?.DisplayName;
+        if (!string.IsNullOrEmpty(username))
         {
-            // 🔐 Admin sertifikası kontrolü
-            if (session?.Identity?.TokenType == UserTokenType.Certificate)
-            {
-                var certSubject = session.Identity?.DisplayName ?? "";
-
-                if (certSubject.Contains("CN=AdminClient"))
-                {
-                    Guid adminGuid = new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-
-                    // Admin zaten bağlıysa atla
-                    if (!activeSessions.ContainsKey(adminGuid))
-                    {
-                        activeSessions[adminGuid] = session;
-                        session.SessionDiagnostics.SessionName = adminGuid.ToString(); // SessionName içine GUID yazılıyor
-
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine($"Admin bağlantısı alındı | GUID: {adminGuid}");
-                        Console.ResetColor();
-
-                        // Admin düğümünü UA Server'da göster
-                        ThreadPool.QueueUserWorkItem((_) =>
-                        {
-                            Thread.Sleep(500);
-                            try
-                            {
-                                var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-                                nodeManager?.RegisterClientNode(adminGuid);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Admin düğüm eklenemedi: {ex.Message}");
-                            }
-                        });
-
-                        return; // Admin bağlantısı tanımlandığı için normal client ataması yapılmaz
-                    }
-                    else
-                    {
-                        Console.WriteLine("Admin zaten bağlı!");
-                        return;
-                    }
-                }
-            }
-
-            // 🔁 Normal client eşlemesi
-            var availableClient = predefinedClients.FirstOrDefault(c => !activeSessions.ContainsKey(c.Key));
-            if (availableClient.Key == Guid.Empty)
-            {
-                if (activeSessions.Count > 0)
-                {
-                    var oldestClient = activeSessions.Keys.First();
-                    Console.WriteLine("Tüm GUID'ler kullanımda, eski oturum değiştiriliyor: {0}", predefinedClients[oldestClient]);
-                    activeSessions.Remove(oldestClient);
-                    availableClient = new KeyValuePair<Guid, string>(oldestClient, predefinedClients[oldestClient]);
-                }
-                else
-                {
-                    Console.WriteLine("Maksimum istemci sayısına ulaşıldı! Yeni istemci atanamadı.");
-                    return;
-                }
-            }
-
-            activeSessions[availableClient.Key] = session;
-            session.SessionDiagnostics.SessionName = availableClient.Key.ToString();
-
-            Console.WriteLine($"Yeni Client Bağlandı: {availableClient.Value} | GUID: {availableClient.Key} | Aktif Client Sayısı: {activeSessions.Count}");
-            Console.WriteLine($"Oturum Bilgileri: SessionId={session.Id}");
-
-            ThreadPool.QueueUserWorkItem((_) =>
-            {
-                Thread.Sleep(500);
-                try
-                {
-                    var nodeManager = CurrentInstance?.NodeManager?.NodeManagers?[0] as MyNodeManager;
-                    nodeManager?.RegisterClientNode(availableClient.Key);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Düğüm kaydederken hata: {ex.Message}");
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Oturum oluşturma hatası: {ex.Message}");
+            _nodeManager?.RegisterUserTagNodes(username); // ← bu satırı kaldır
+            Console.WriteLine($"Yeni kullanıcı oturumu: {username}");
         }
     }
+        
 
 
     private void OnSessionDeleted(Session session, SessionEventReason reason)

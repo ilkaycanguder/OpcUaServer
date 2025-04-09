@@ -30,7 +30,7 @@ namespace OpcUaServer
             _rolePermissions.Add(UserRole.Guest, new List<string>
             {
                 "ayd_status1", "ayd_status2" // Sadece durum bilgilerini görüntüleme
-            });
+            }); 
         }
 
         public UserRole GetUserRole(string username)
@@ -59,5 +59,32 @@ namespace OpcUaServer
 
             return false;
         }
+        public List<string> GetPermittedTags(string username)
+        {
+            UserRole role = GetUserRole(username);
+            if (_rolePermissions.TryGetValue(role, out var tags))
+                return tags;
+
+            return new List<string>();
+        }
+        public List<string> GetAllowedTags(string username)
+        {
+            var role = GetUserRole(username);
+
+            if (_rolePermissions.TryGetValue(role, out var tags))
+            {
+                // Eğer tüm taglara erişim varsa, '*' ile işaretlenmiştir
+                if (tags.Contains("*"))
+                {
+                    // '*' özel durumu, tüm taglara izin verildiğini temsil eder
+                    return new List<string> { "*" };
+                }
+
+                return new List<string>(tags); // Orijinal listeyi değiştirmemek için kopya döndür
+            }
+
+            return new List<string>(); // Erişim yoksa boş liste
+        }
+
     }
 }
