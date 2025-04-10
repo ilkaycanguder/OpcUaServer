@@ -1,0 +1,4 @@
+{
+  "Admin": [ "*" ],
+  "Guest": [ "ayd_status1", "ayd_status2" ]
+}

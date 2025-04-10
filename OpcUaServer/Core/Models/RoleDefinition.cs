@@ -1,0 +1,15 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace OpcUaServer.Core.Models
+{
+    public class RoleDefinition
+    {
+        public string Role { get; set; }
+        public List<string> Permissions { get; set; }
+    }
+
+}

@@ -1,7 +1,8 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Opc.Ua;
 using Opc.Ua.Server;
-using OpcUaServer;
+using OpcUaServer.Application.Managers;
+using OpcUaServer.Server;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,6 +14,7 @@ public class MyServer : StandardServer
     private readonly Dictionary<Guid, Session> activeSessions = new Dictionary<Guid, Session>();
     private readonly Dictionary<string, Session> userSessionMap = new(); // username → session
     private MyNodeManager _nodeManager;
+    private TagUpdateTimerService _tagUpdateService;
 
     private MySessionManager _sessionManager;
 
@@ -44,6 +46,10 @@ public class MyServer : StandardServer
     protected override void OnServerStarted(IServerInternal server)
     {
         base.OnServerStarted(server);
+
+        // Timer başlat
+        _tagUpdateService = new TagUpdateTimerService(_nodeManager);
+        _tagUpdateService.Start();
 
         // Oturum sürelerini yapılandır
         try
@@ -97,6 +103,8 @@ public class MyServer : StandardServer
             ServerInternal.SessionManager.ImpersonateUser -= OnImpersonateUser;
         }
 
+        _tagUpdateService?.Stop();
+
         base.OnServerStopping();
     }
 
@@ -109,8 +117,6 @@ public class MyServer : StandardServer
             Console.WriteLine($"Yeni kullanıcı oturumu: {username}");
         }
     }
-        
-
 
     private void OnSessionDeleted(Session session, SessionEventReason reason)
     {
