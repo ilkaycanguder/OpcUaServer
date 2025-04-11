@@ -6,7 +6,13 @@
       {
         "name": "admin",
         "displayName": "Admin",
-        "tags": [ "*" ]
+        "tags": [
+          "ayd_auto_mode",
+          "ayd_setman1",
+          "ayd_status1",
+          "ayd_status2",
+          "ayd_error_flag"
+        ]
       },
       {
         "name": "guest",

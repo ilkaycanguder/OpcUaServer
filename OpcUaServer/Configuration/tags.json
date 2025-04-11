@@ -1,26 +1,13 @@
 {
   "admin": [
-    {
-      "TagName": "ayd_auto_mode",
-      "InitialValue": 0
-    },
-    {
-      "TagName": "ayd_setman1",
-      "InitialValue": 1
-    },
-    {
-      "TagName": "ayd_status1",
-      "InitialValue": 1
-    }
+    { "TagName": "ayd_auto_mode", "InitialValue": 0 },
+    { "TagName": "ayd_setman1", "InitialValue": 1 },
+    { "TagName": "ayd_status1", "InitialValue": 1 },
+    { "TagName": "ayd_status2", "InitialValue": 0 },
+    { "TagName": "ayd_error_flag", "InitialValue": 0 }
   ],
   "guest": [
-    {
-      "TagName": "ayd_status1",
-      "InitialValue": 1
-    },
-    {
-      "TagName": "ayd_status2",
-      "InitialValue": 1
-    }
+    { "TagName": "ayd_status1", "InitialValue": 1 },
+    { "TagName": "ayd_status2", "InitialValue": 0 }
   ]
 }

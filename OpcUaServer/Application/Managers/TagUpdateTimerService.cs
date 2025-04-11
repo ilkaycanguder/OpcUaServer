@@ -1,4 +1,5 @@
-﻿using Opc.Ua;
+﻿using Microsoft.AspNetCore.Razor.TagHelpers;
+using Opc.Ua;
 using Opc.Ua.Server;
 using System;
 using System.Collections.Generic;
@@ -13,6 +14,7 @@ namespace OpcUaServer.Application.Managers
         private readonly CustomNodeManager2 _nodeManager;
         private readonly int _intervalMs;
         private Timer _timer;
+        private bool _isRunning = false;
 
         public TagUpdateTimerService(CustomNodeManager2 nodeManager, int intervalSeconds = 5)
         {
@@ -22,10 +24,15 @@ namespace OpcUaServer.Application.Managers
 
         public void Start()
         {
+            if (_isRunning)
+            {
+                Stop(); 
+            }
+
             _timer = new Timer(UpdateTagValues, null, 0, _intervalMs);
+            _isRunning = true;
             Console.WriteLine($"⏱️ TagUpdateTimerService başlatıldı. {_intervalMs / 1000} sn aralıklarla değer güncellenecek.");
         }
-
         private void UpdateTagValues(object state)
         {
             try
@@ -56,11 +63,16 @@ namespace OpcUaServer.Application.Managers
             }
         }
 
-
         public void Stop()
         {
-            _timer?.Dispose();
-            Console.WriteLine("⏹️ TagUpdateTimerService durduruldu.");
+            if (_timer != null)
+            {
+                _timer.Change(Timeout.Infinite, Timeout.Infinite); 
+                _timer.Dispose();
+                _timer = null;
+                _isRunning = false;
+                Console.WriteLine("TagUpdateTimerService durduruldu.");
+            }
         }
     }
 }

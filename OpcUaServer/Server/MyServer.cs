@@ -15,6 +15,7 @@ public class MyServer : StandardServer
     private readonly Dictionary<string, Session> userSessionMap = new(); // username → session
     private MyNodeManager _nodeManager;
     private TagUpdateTimerService _tagUpdateService;
+    private bool _tagUpdateServiceStarted = false;
 
     private MySessionManager _sessionManager;
 
@@ -88,11 +89,28 @@ public class MyServer : StandardServer
 
             // 🧠 Tam burada tag oluştur!
             _nodeManager?.RegisterUserTagNodes(username);
+            Task.Delay(1000).ContinueWith(_ =>
+            {
+                if (!_tagUpdateServiceStarted)
+                {
+                    _tagUpdateService?.Start();
+                    _tagUpdateServiceStarted = true;
+                }
+            });
         }
         else
         {
             Console.WriteLine("Anonim bağlantı kabul edildi");
             _nodeManager?.RegisterUserTagNodes("Anonymous");
+
+            Task.Delay(1000).ContinueWith(_ =>
+            {
+                if (!_tagUpdateServiceStarted)
+                {
+                    _tagUpdateService?.Start();
+                    _tagUpdateServiceStarted = true;
+                }
+            });
         }
     }
 
@@ -113,8 +131,10 @@ public class MyServer : StandardServer
         var username = session?.Identity?.DisplayName;
         if (!string.IsNullOrEmpty(username))
         {
-            _nodeManager?.RegisterUserTagNodes(username); // ← bu satırı kaldır
+            _nodeManager?.RegisterUserTagNodes(username); // MUTLAKA çağrılmalı
             Console.WriteLine($"Yeni kullanıcı oturumu: {username}");
+            _tagUpdateService?.Start();
+
         }
     }
 

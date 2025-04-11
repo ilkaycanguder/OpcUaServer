@@ -16,15 +16,38 @@ public class MyNodeManager : CustomNodeManager2
     private readonly Dictionary<Guid, Session> activeSessionMap;
     private readonly Dictionary<Guid, FolderState> clientNodes = new();
     private FolderState _rootFolder;
+    private bool _tagUpdateServiceStarted = false;
+    private TagUpdateTimerService _tagUpdateService;
 
     public List<BaseDataVariableState> GetAllTagNodes()
     {
         lock (Lock)
         {
-            return PredefinedNodes.OfType<BaseDataVariableState>().ToList();
+            var allNodes = new List<BaseDataVariableState>();
+
+            var predefinedVariables = PredefinedNodes.Values.OfType<BaseDataVariableState>().ToList();
+            allNodes.AddRange(predefinedVariables);
+
+            Console.WriteLine($"Güncellenecek tag sayısı: {allNodes.Count}");
+            return allNodes;
         }
     }
+    public void InitializeTagUpdateService()
+    {
+        lock (Lock)
+        {
+            // Ensure we stop any existing timer first
+            if (_tagUpdateService != null)
+            {
+                _tagUpdateService.Stop();
+            }
 
+            // Create a new timer service
+            _tagUpdateService = new TagUpdateTimerService(this);
+            _tagUpdateService.Start();
+            _tagUpdateServiceStarted = true;
+        }
+    }
     public MyNodeManager(IServerInternal server, ApplicationConfiguration config, Dictionary<Guid, Session> sessionMap)
         : base(server, config, Namespace)
     {
@@ -119,6 +142,7 @@ public class MyNodeManager : CustomNodeManager2
                         AddPredefinedNode(SystemContext, variable);
                     }
                 }
+                InitializeTagUpdateService();
             }
         }
     }
@@ -159,9 +183,18 @@ public class MyNodeManager : CustomNodeManager2
                     OnSimpleWriteValue = HandleTagValueUpdate
                 };
 
-                userFolder.AddChild(variable);
                 AddPredefinedNode(SystemContext, variable);
+                userFolder.AddChild(variable);
             }
+
+            // ⏱️ TAGLAR EKLENDİKTEN SONRA TIMER BAŞLASIN
+            if (!_tagUpdateServiceStarted)
+            {
+                _tagUpdateService?.Start();
+                _tagUpdateServiceStarted = true;
+            }
+            InitializeTagUpdateService();
+
         }
     }
 
