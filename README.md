@@ -1,55 +1,36 @@
-OPC UA Çözümü
-Bu proje, OPC UA protokolünü kullanarak endüstriyel otomasyon sistemleri için bir sunucu-istemci çözümü sunar. OPC UA sunucusu, istemciler için gerçek zamanlı veri erişimi ve yönetimi sağlar.
+# OPC UA Sunucu
 
-Proje Yapısı
-Çözüm aşağıdaki projelerden oluşmaktadır:
+Bu proje, OPC UA protokolünü kullanarak endüstriyel otomasyon sistemleri için sunucu uygulaması sunar. OPC UA sunucusu, istemciler için gerçek zamanlı veri erişimi ve yönetimi sağlar.
 
-OpcUaServer
-OPC UA protokolünü kullanarak endüstriyel otomasyon sistemleri için bir sunucu uygulaması.
+## Proje Yapısı
 
-Program.cs: Sunucu yapılandırması ve başlatma işlemlerini içerir
-MyServer.cs: OPC UA sunucu sınıfı
-MyNodeManager.cs: OPC UA adres uzayını ve düğümleri yöneten sınıf
-OpcUaServer.Config.xml: Sunucu yapılandırma dosyası
+OpcUaServer projesi aşağıdaki dosyalardan oluşmaktadır:
 
-OpcUaClient
-Komut satırı tabanlı OPC UA istemci uygulaması. (Geliştirme aşamasında)
+- **Program.cs**: Sunucu yapılandırması ve başlatma işlemlerini içerir
+- **MyServer.cs**: OPC UA sunucu sınıfı
+- **MyNodeManager.cs**: OPC UA adres uzayını ve düğümleri yöneten sınıf
+- **OpcUaServer.Config.xml**: Sunucu yapılandırma dosyası
 
-Program.cs: İstemci uygulamasının ana kodu
-OpcUaClient.Config.xml: İstemci yapılandırma dosyası
+## Özellikler
 
-OpcUaClientWPF
-Grafiksel kullanıcı arayüzüne sahip OPC UA istemci uygulaması. (Geliştirme aşamasında)
+- OPC UA protokolü üzerinden güvenli iletişim
+- Gerçek zamanlı veri izleme ve kontrol
+- Tag değerlerinin izlenmesi ve değiştirilmesi
+- Otomatik oturum yönetimi ve client takibi
+- Detaylı loglama ve hata izleme
+- Rol tabanlı erişim kontrolü
+- SSL sertifika desteği
 
-MainWindow.xaml/MainWindow.xaml.cs: Ana pencere ve uygulama mantığı
-Converters.cs: XAML veri dönüşümleri için yardımcı sınıflar
+## Gereksinimler
 
-OPCCommonLibrary
-Sunucu ve istemci uygulamaları tarafından paylaşılan ortak kod kütüphanesi.
+- .NET Framework veya .NET Core
+- OPC UA kütüphaneleri (OPC Foundation UA .NET Standard)
+- OpenSSL (sertifika oluşturmak için)
+- UaExpert veya başka OPC UA istemcileri (test için)
 
-OpcTag.cs: OPC etiketlerini temsil eden veri modeli
+## Kurulum
 
-Özellikler
-
-OPC UA protokolü üzerinden güvenli iletişim
-Gerçek zamanlı veri izleme ve kontrol
-Sohbet benzeri mesajlaşma özelliği
-Etiket (tag) değerlerinin izlenmesi ve değiştirilmesi
-WPF tabanlı modern kullanıcı arayüzü (Geliştirme aşamasında)
-Otomatik oturum yönetimi ve client takibi
-Detaylı loglama ve hata izleme
-Rol tabanlı erişim kontrolü
-
-Gereksinimler
-
-.NET Framework veya .NET Core
-OPC UA kütüphaneleri (OPC Foundation UA .NET Standard)
-OpenSSL (sertifika oluşturmak için)
-UaExpert (test için)
-
-Kurulum
-
-1. Çözümü Visual Studio'da açın ve derleyin.
+1. Projeyi Visual Studio'da açın ve derleyin.
 2. Sertifika yapılandırması:
    - OpenSSL kullanarak sertifika oluşturun:
      ```
@@ -62,38 +43,33 @@ Kurulum
    - Sertifikaları uygulama dizinine kopyalayın
 3. Sunucu yapılandırma dosyasını ihtiyaçlarınıza göre düzenleyin.
 
-Kullanım
+## Kullanım
 
-1. Önce OpcUaServer uygulamasını başlatın.
-2. UaExpert ile test edin:
+1. OpcUaServer uygulamasını başlatın.
+2. Herhangi bir OPC UA istemcisi (UaExpert, UAModeler, Prosys vb.) ile test edin:
    - Yeni bir sunucu bağlantısı ekleyin
    - URL: `opc.tcp://localhost:4840/UA/OpcUaServer`
    - Security Mode: None
    - Security Policy: None
-   - User Identity: Anonymous
+   - User Identity: Anonymous veya kullanıcı adı/şifre
 3. Tag'leri görüntüleyin ve test edin.
 
-Not: OpcUaClientWPF ve OpcUaClient uygulamaları şu anda geliştirme aşamasındadır. Testler için UaExpert kullanmanız önerilir.
-
-Rol Tabanlı Erişim Kontrolü
+## Rol Tabanlı Erişim Kontrolü
 
 1. Kullanıcı Rolleri:
 
    - Admin: Tüm yetkilere sahip
    - Guest: Sadece okuma yetkisine sahip
-   - Operator: Okuma ve yazma yetkisine sahip
 
 2. Yetki Seviyeleri:
 
    - Admin:
+
      - Tüm tagları okuyabilir ve yazabilir
      - Yeni tag ekleyebilir
      - Tag silebilir
      - Kullanıcı yönetimi yapabilir
-   - Operator:
-     - Tüm tagları okuyabilir
-     - Belirli taglara yazabilir
-     - Tag değerlerini değiştirebilir
+
    - Guest:
      - Tagları sadece okuyabilir
      - Değer değiştiremez
@@ -103,7 +79,7 @@ Rol Tabanlı Erişim Kontrolü
    - Rol bazlı yetkilendirme
    - Oturum yönetimi
 
-Güvenlik
+## Güvenlik
 
 Uygulama, OPC UA protokolünün güvenlik özelliklerini kullanır:
 
@@ -132,9 +108,9 @@ Uygulama, OPC UA protokolünün güvenlik özelliklerini kullanır:
    - Otomatik oturum temizleme
    - Rol bazlı oturum kontrolü
 
-UaExpert ile Test Etme
+## OPC UA İstemcileri ile Test Etme
 
-1. UaExpert'te yeni bir sunucu bağlantısı ekleyin:
+1. UaExpert ile Test:
 
    - URL: `opc.tcp://localhost:4840/UA/OpcUaServer`
    - Security Mode: None
@@ -150,7 +126,7 @@ UaExpert ile Test Etme
 3. Bağlantı sorunları yaşarsanız:
 
    - Sertifikaları yeniden oluşturun
-   - UaExpert'i yeniden başlatın
+   - İstemci uygulamasını yeniden başlatın
    - Güvenlik ayarlarını "None" olarak ayarlayın
 
 4. Test Adımları:
@@ -160,6 +136,7 @@ UaExpert ile Test Etme
    - Değerleri yazın (yetkiniz varsa)
    - Rol bazlı erişim kontrolünü test edin
 
-Lisans
+## Lisans
+
 Bu proje MIT Lisansı altında lisanslanmıştır. Daha fazla bilgi için LICENSE dosyasını inceleyebilirsiniz.
 MIT Lisansı, yazılımı özgürce kullanma, değiştirme ve dağıtma hakkı verir, ancak orijinal telif hakkı ve lisans bildirimlerinin korunması gerekir.
