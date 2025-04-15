@@ -5,10 +5,6 @@ VisualStudioVersion = 17.13.35825.156
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpcUaServer", "OpcUaServer\OpcUaServer.csproj", "{62F4D8C2-F0B9-40F7-8819-AF56C70AD9EA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpcUaClientWPF", "OpcUaClientWPF\OpcUaClientWPF.csproj", "{4EE5418A-17EA-49EE-BAD3-164F09030C86}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OPCCommonLibrary", "OPCCommonLibrary\OPCCommonLibrary.csproj", "{B86E85DA-894C-4A2D-96FE-83747525148E}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -19,14 +15,6 @@ Global
 		{62F4D8C2-F0B9-40F7-8819-AF56C70AD9EA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{62F4D8C2-F0B9-40F7-8819-AF56C70AD9EA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{62F4D8C2-F0B9-40F7-8819-AF56C70AD9EA}.Release|Any CPU.Build.0 = Release|Any CPU
-		{4EE5418A-17EA-49EE-BAD3-164F09030C86}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{4EE5418A-17EA-49EE-BAD3-164F09030C86}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{4EE5418A-17EA-49EE-BAD3-164F09030C86}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{4EE5418A-17EA-49EE-BAD3-164F09030C86}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B86E85DA-894C-4A2D-96FE-83747525148E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B86E85DA-894C-4A2D-96FE-83747525148E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B86E85DA-894C-4A2D-96FE-83747525148E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B86E85DA-894C-4A2D-96FE-83747525148E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
